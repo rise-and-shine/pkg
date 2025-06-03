@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/code19m/pkg/sorter"
+	"github.com/rise-and-shine/pkg/sorter"
 )
 
 func TestMakeFromStr(t *testing.T) {

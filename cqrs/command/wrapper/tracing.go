@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/code19m/pkg/cqrs/command"
+	"github.com/rise-and-shine/pkg/cqrs/command"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"

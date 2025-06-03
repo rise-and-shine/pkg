@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/code19m/errx"
-	"github.com/code19m/pkg/pg"
+	"github.com/rise-and-shine/pkg/pg"
 	"github.com/uptrace/bun"
 )
 

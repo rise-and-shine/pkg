@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"github.com/code19m/errx"
-	"github.com/code19m/pkg/http/server"
-	"github.com/code19m/pkg/logger"
-	"github.com/code19m/pkg/meta"
+	"github.com/rise-and-shine/pkg/http/server"
+	"github.com/rise-and-shine/pkg/logger"
+	"github.com/rise-and-shine/pkg/meta"
 	"github.com/gofiber/fiber/v2"
 )
 

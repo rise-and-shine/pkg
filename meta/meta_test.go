@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/code19m/pkg/meta"
+	"github.com/rise-and-shine/pkg/meta"
 )
 
 // testMeta creates a metadata map for testing purposes.
