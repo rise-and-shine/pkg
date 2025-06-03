@@ -1,0 +1,136 @@
+package kafka
+
+import (
+	"context"
+	"errors"
+	"github.com/IBM/sarama"
+	"github.com/code19m/errx"
+	"github.com/code19m/pkg/alert"
+	log "github.com/code19m/pkg/logger"
+	"strings"
+)
+
+type consumer struct {
+	topic         string
+	cfg           ConsumerConfig
+	saramaCfg     *sarama.Config
+	logger        log.Logger
+	consumerGroup sarama.ConsumerGroup
+	handleFn      HandleFunc
+	alertProvider alert.Provider
+}
+
+// HandleFunc is a delivery handler that should be injected into the consumer
+type HandleFunc func(context.Context, *sarama.ConsumerMessage) error
+
+// NewConsumer creates a new kafka consumer
+func NewConsumer(
+	cfg ConsumerConfig,
+	alertProvider alert.Provider,
+	logger log.Logger,
+	handleFn HandleFunc,
+) (*consumer, error) {
+	saramaCfg, err := cfg.getSaramaConfig()
+	if err != nil {
+		return nil, errx.Wrap(err)
+	}
+
+	// create a new consumer group
+	consumerGroup, err := sarama.NewConsumerGroup(strings.Split(cfg.Brokers, ","), cfg.ServiceName, saramaCfg)
+	if err != nil {
+		return nil, errx.Wrap(err)
+	}
+
+	return &consumer{
+		topic:         cfg.Topic,
+		cfg:           cfg,
+		saramaCfg:     saramaCfg,
+		logger:        logger.Named("consumer"),
+		consumerGroup: consumerGroup,
+		handleFn:      handleFn,
+		alertProvider: alertProvider,
+	}, nil
+}
+
+// Start starts the consumer and begins consuming messages
+func (c *consumer) Start() error {
+	// the main consume loop, parent of the ConsumerClaim() partition consumer loop
+	for {
+		err := c.consumerGroup.Consume(context.Background(), []string{c.topic}, c)
+		if err != nil {
+			if errors.Is(err, sarama.ErrClosedConsumerGroup) {
+				return nil
+			}
+			return errx.Wrap(err)
+		}
+
+		c.logger.Info("rebalancing occurred, waiting for new messages")
+	}
+}
+
+func (c *consumer) Stop() error {
+	if err := c.consumerGroup.Close(); err != nil {
+		return errx.Wrap(err)
+	}
+	return nil
+}
+
+// Implements sarama.ConsumerGroupHandler contract
+func (c *consumer) Setup(session sarama.ConsumerGroupSession) error {
+	return nil
+}
+
+// Implements sarama.ConsumerGroupHandler contract
+func (c *consumer) Cleanup(session sarama.ConsumerGroupSession) error {
+	return nil
+}
+
+// ConsumeClaim must start a consumer loop of ConsumerGroupClaim's Messages().
+func (c *consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
+	// NOTE:
+	// Do not move the code below to a goroutine.
+	// The `ConsumeClaim` itself is called within a goroutine,
+	// https://github.com/IBM/sarama/blob/main/consumer_group.go#L27-L29
+	for {
+		select {
+		case message, ok := <-claim.Messages():
+			if !ok {
+				// The channel is closed, exit the loop
+				return nil
+			}
+
+			// Build the handler chain
+			chain := c.buildHandlerChain()
+
+			// ignore the error and move on to the next message
+			// as the error is already handled in the handler chain
+			_ = chain(context.Background(), message)
+
+			// mask this message offset as consumed
+			session.MarkMessage(message, "")
+
+		// Should return when `session.Context()` is done
+		// if not, will raise `ErrRebalanceInProgress` or `read tcp <ip>:<port>: i/o timeout` when kafka rebalance
+		// https://github.com/IBM/sarama/issues/1192
+		case <-session.Context().Done():
+			return nil
+		}
+	}
+}
+
+func (c *consumer) buildHandlerChain() HandleFunc {
+	// start with the core business logic handler
+	handler := c.handleFn
+
+	// build the chain in reverse order (last wrapper first)
+	handler = c.handlerWithRetry(handler)         // 8. retry
+	handler = c.handlerWithErrorHandling(handler) // 7. error handling (innermost)
+	handler = c.handlerWithLogging(handler)       // 6. logging
+	handler = c.handlerWithAlerting(handler)      // 5. alerting
+	handler = c.handlerWithMetaInjection(handler) // 4. meta injection
+	handler = c.handlerWithTimeout(handler)       // 7. timeout
+	handler = c.handlerWithTracing(handler)       // 5. tracing
+	handler = c.handlerWithRecovery(handler)      // 4. recovery (outermost)
+
+	return handler
+}
