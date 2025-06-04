@@ -5,8 +5,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/rise-and-shine/pkg/http/server"
 	"github.com/gofiber/fiber/v2"
+	"github.com/rise-and-shine/pkg/http/server"
 )
 
 // NewTimeoutMW creates a middleware that applies a timeout to the request context.

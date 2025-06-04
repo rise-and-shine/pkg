@@ -4,10 +4,10 @@ package middleware
 import (
 	"context"
 
-	"github.com/rise-and-shine/pkg/http/server"
-	"github.com/rise-and-shine/pkg/meta"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"github.com/rise-and-shine/pkg/http/server"
+	"github.com/rise-and-shine/pkg/meta"
 	"go.opentelemetry.io/otel/trace"
 )
 

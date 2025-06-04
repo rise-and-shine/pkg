@@ -5,9 +5,9 @@ import (
 	"errors"
 
 	"github.com/code19m/errx"
+	"github.com/gofiber/fiber/v2"
 	"github.com/rise-and-shine/pkg/http/server"
 	"github.com/rise-and-shine/pkg/meta"
-	"github.com/gofiber/fiber/v2"
 )
 
 // Common error codes used by the error handler middleware.

@@ -4,8 +4,8 @@ package middleware
 import (
 	"fmt"
 
-	"github.com/rise-and-shine/pkg/http/server"
 	"github.com/gofiber/fiber/v2"
+	"github.com/rise-and-shine/pkg/http/server"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
 	semconv "go.opentelemetry.io/otel/semconv/v1.23.1"

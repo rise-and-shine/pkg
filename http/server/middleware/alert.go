@@ -5,11 +5,11 @@ import (
 	"fmt"
 
 	"github.com/code19m/errx"
+	"github.com/gofiber/fiber/v2"
 	"github.com/rise-and-shine/pkg/alert"
 	"github.com/rise-and-shine/pkg/http/server"
 	"github.com/rise-and-shine/pkg/logger"
 	"github.com/rise-and-shine/pkg/meta"
-	"github.com/gofiber/fiber/v2"
 	"github.com/spf13/cast"
 )
 
