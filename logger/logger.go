@@ -10,7 +10,7 @@ import (
 	"os"
 
 	"github.com/code19m/errx"
-	"github.com/code19m/pkg/meta"
+	"github.com/rise-and-shine/pkg/meta"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )

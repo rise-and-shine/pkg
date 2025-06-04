@@ -1,4 +1,4 @@
-module github.com/code19m/pkg
+module github.com/rise-and-shine/pkg
 
 go 1.23.3
 

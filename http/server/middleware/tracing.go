@@ -4,7 +4,7 @@ package middleware
 import (
 	"fmt"
 
-	"github.com/code19m/pkg/http/server"
+	"github.com/rise-and-shine/pkg/http/server"
 	"github.com/gofiber/fiber/v2"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
