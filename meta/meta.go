@@ -1,7 +1,11 @@
 // Package meta provides functionality for managing request metadata through context.
 package meta
 
-import "context"
+import (
+	"context"
+
+	"github.com/code19m/errx"
+)
 
 // ContextKey is a type for keys used in context values for metadata.
 type ContextKey string
@@ -92,4 +96,16 @@ func ExtractMetaFromContext(ctx context.Context) map[ContextKey]string {
 		}
 	}
 	return data
+}
+
+// ShouldGetMeta retrieves a metadata value from the context by its key.
+// It returns the value as a string if found, or an error if the key does not exist.
+func ShouldGetMeta(ctx context.Context, key ContextKey) (string, error) {
+	if value := ctx.Value(key); value != nil {
+		if str, ok := value.(string); ok {
+			return str, nil
+		}
+		return "", errx.New("meta type mismatch", errx.WithDetails(errx.D{"key": key, "value": value}))
+	}
+	return "", errx.New("meta not found", errx.WithDetails(errx.D{"key": key}))
 }
