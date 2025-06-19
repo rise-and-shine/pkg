@@ -27,6 +27,9 @@ type Config struct {
 
 	// HandleTimeout is a maximum duration for handling a single request. Default is 10 seconds.
 	HandleTimeout time.Duration `yaml:"request_timeout" validate:"required" default:"10s"`
+
+	// BodyLimit is the maximum request body size in bytes. Default is 4MB.
+	BodyLimit int `yaml:"body_limit" validate:"required" default:"4194304"`
 }
 
 // Address returns the server's listen address in the form "host:port".

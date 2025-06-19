@@ -25,6 +25,7 @@ func NewHTTPServer(cfg Config, middlewares []Middleware) *HTTPServer {
 		ErrorHandler:          customErrorHandler(),
 		DisableStartupMessage: true,
 		Immutable:             true,
+		BodyLimit:             cfg.BodyLimit,
 	})
 
 	applyMiddlewares(router, middlewares)
