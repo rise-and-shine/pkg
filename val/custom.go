@@ -49,7 +49,7 @@ func IsStrongPassword(password string) bool {
 			hasLower = true
 		case char >= '0' && char <= '9':
 			hasNumber = true
-		case !((char >= 'A' && char <= 'Z') || (char >= 'a' && char <= 'z') || (char >= '0' && char <= '9')):
+		case char < 'A' || (char > 'Z' && char < 'a') || (char > 'z' && char < '0') || char > '9':
 			hasSpecial = true
 		}
 	}

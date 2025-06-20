@@ -43,8 +43,53 @@ func ValidateSchema(schema any) error {
 
 func getFieldErrDescription(fieldErr validator.FieldError) string {
 	param := fieldErr.Param()
+	tag := fieldErr.Tag()
 
-	switch fieldErr.Tag() {
+	if desc := getBasicValidationDesc(tag, param, fieldErr); desc != "" {
+		return desc
+	}
+
+	if desc := getFormatValidationDesc(tag, param); desc != "" {
+		return desc
+	}
+
+	if desc := getNetworkValidationDesc(tag); desc != "" {
+		return desc
+	}
+
+	if desc := getColorValidationDesc(tag); desc != "" {
+		return desc
+	}
+
+	if desc := getDocumentValidationDesc(tag); desc != "" {
+		return desc
+	}
+
+	if desc := getCustomValidationDesc(tag); desc != "" {
+		return desc
+	}
+
+	return fmt.Sprintf("Failed validation: %s", tag)
+}
+
+func getBasicValidationDesc(tag, param string, fieldErr validator.FieldError) string {
+	if desc := getCoreValidationDesc(tag, param, fieldErr); desc != "" {
+		return desc
+	}
+
+	if desc := getStringValidationDesc(tag, param); desc != "" {
+		return desc
+	}
+
+	if desc := getFieldComparisonDesc(tag, param); desc != "" {
+		return desc
+	}
+
+	return ""
+}
+
+func getCoreValidationDesc(tag, param string, fieldErr validator.FieldError) string {
+	switch tag {
 	case "required":
 		return "This field is required"
 	case "email":
@@ -78,16 +123,12 @@ func getFieldErrDescription(fieldErr validator.FieldError) string {
 		return "Must contain only alphanumeric characters"
 	case "numeric":
 		return "Must be a valid number"
-	case "url":
-		return "Must be a valid URL"
-	case "uri":
-		return "Must be a valid URI"
-	case "uuid":
-		return "Must be a valid UUID"
-	case "uuid4":
-		return "Must be a valid UUID v4"
-	case "uuid5":
-		return "Must be a valid UUID v5"
+	}
+	return ""
+}
+
+func getStringValidationDesc(tag, param string) string {
+	switch tag {
 	case "oneof":
 		options := strings.ReplaceAll(param, " ", ", ")
 		return fmt.Sprintf("Must be one of: %s", options)
@@ -103,10 +144,12 @@ func getFieldErrDescription(fieldErr validator.FieldError) string {
 		return fmt.Sprintf("Must end with: %s", param)
 	case "datetime":
 		return fmt.Sprintf("Must be a valid datetime in format: %s", param)
-	case "phone_uz":
-		return "Must be a valid Uzbek phone number (format: 998XXXXXXXXX)"
-	case "strong_password":
-		return "Must be a strong password (at least 8 characters with uppercase, lowercase, number, and special character)"
+	}
+	return ""
+}
+
+func getFieldComparisonDesc(tag, param string) string {
+	switch tag {
 	case "eqfield":
 		return fmt.Sprintf("Must be equal to %s", param)
 	case "nefield":
@@ -115,10 +158,34 @@ func getFieldErrDescription(fieldErr validator.FieldError) string {
 		return fmt.Sprintf("Must be greater than %s", param)
 	case "ltfield":
 		return fmt.Sprintf("Must be less than %s", param)
+	}
+	return ""
+}
+
+func getFormatValidationDesc(tag, _ string) string {
+	switch tag {
+	case "url":
+		return "Must be a valid URL"
+	case "uri":
+		return "Must be a valid URI"
+	case "uuid":
+		return "Must be a valid UUID"
+	case "uuid4":
+		return "Must be a valid UUID v4"
+	case "uuid5":
+		return "Must be a valid UUID v5"
 	case "json":
 		return "Must be valid JSON"
 	case "base64":
 		return "Must be valid base64"
+	case "jwt":
+		return "Must be a valid JWT token"
+	}
+	return ""
+}
+
+func getNetworkValidationDesc(tag string) string {
+	switch tag {
 	case "hostname":
 		return "Must be a valid hostname"
 	case "fqdn":
@@ -135,6 +202,12 @@ func getFieldErrDescription(fieldErr validator.FieldError) string {
 		return "Must be a valid latitude"
 	case "longitude":
 		return "Must be a valid longitude"
+	}
+	return ""
+}
+
+func getColorValidationDesc(tag string) string {
+	switch tag {
 	case "rgb":
 		return "Must be a valid RGB color"
 	case "rgba":
@@ -145,6 +218,12 @@ func getFieldErrDescription(fieldErr validator.FieldError) string {
 		return "Must be a valid HSLA color"
 	case "hexcolor":
 		return "Must be a valid hex color"
+	}
+	return ""
+}
+
+func getDocumentValidationDesc(tag string) string {
+	switch tag {
 	case "isbn":
 		return "Must be a valid ISBN"
 	case "isbn10":
@@ -155,9 +234,16 @@ func getFieldErrDescription(fieldErr validator.FieldError) string {
 		return "Must be a valid credit card number"
 	case "ssn":
 		return "Must be a valid social security number"
-	case "jwt":
-		return "Must be a valid JWT token"
-	default:
-		return fmt.Sprintf("Failed validation: %s", fieldErr.Tag())
 	}
+	return ""
+}
+
+func getCustomValidationDesc(tag string) string {
+	switch tag {
+	case "phone_uz":
+		return "Must be a valid Uzbek phone number (format: 998XXXXXXXXX)"
+	case "strong_password":
+		return "Must be a strong password (at least 8 characters with uppercase, lowercase, number, and special character)"
+	}
+	return ""
 }
