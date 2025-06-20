@@ -4,18 +4,39 @@ package val
 import (
 	"reflect"
 	"strings"
+	"sync"
 
 	"github.com/go-playground/validator/v10"
 )
 
-var validate *validator.Validate //nolint: gochecknoglobals // temporarily using a global variable until better solution is found
+var (
+	validate *validator.Validate //nolint: gochecknoglobals // singleton validator instance
+	once     sync.Once           //nolint: gochecknoglobals // ensures validator is initialized once
+)
 
-func init() { //nolint: gochecknoinits // temporarily using init function until better solution is found
-	validate = validator.New()
-	validate.RegisterTagNameFunc(getTagName)
+// RegisterCustomValidation registers a custom validation function for a specific tag.
+func RegisterCustomValidation(tag string, fn validator.Func) error {
+	return getValidator().RegisterValidation(tag, fn)
 }
 
-// TODO: Implement RegisterCustomValidations function
+// getValidator returns the singleton validator instance with custom configurations.
+func getValidator() *validator.Validate {
+	once.Do(func() {
+		validate = validator.New()
+		validate.RegisterTagNameFunc(getTagName)
+		registerCommonValidations()
+	})
+	return validate
+}
+
+// registerCommonValidations registers all custom validation functions.
+func registerCommonValidations() {
+	// Register phone_uz validation
+	_ = validate.RegisterValidation("phone_uz", validatePhoneUz)
+
+	// Register strong_password validation
+	_ = validate.RegisterValidation("strong_password", validateStrongPassword)
+}
 
 // getTagName returns the name of a struct field based on its struct tags.
 // It checks 'json', 'query', and 'params' tags in that order, and falls back

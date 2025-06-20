@@ -1,5 +1,5 @@
 package val
 
 const (
-	CodeInvalidInput = "INVALID_INPUT"
+	CodeValidationFailed = "VALIDATION_FAILED"
 )
