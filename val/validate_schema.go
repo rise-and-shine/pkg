@@ -21,11 +21,12 @@ func ValidateSchema(schema any) error {
 		fields := make(errx.M)
 
 		for _, fieldErr := range validationErrors {
-			fields[fieldErr.Field()] = getFieldErrDescription(fieldErr)
+			field := fieldErr.Field()
+			fields[field] = getFieldErrDescription(fieldErr)
 		}
 
 		return errx.New(
-			"Validation failed with field errors. See fields for details.",
+			"Validation failed. See fields for details.",
 			errx.WithCode(CodeInvalidInput),
 			errx.WithType(errx.T_Validation),
 			errx.WithFields(fields),
@@ -50,8 +51,29 @@ func getFieldErrDescription(fieldErr validator.FieldError) string {
 		return fmt.Sprintf("Must be at most %s characters", fieldErr.Param())
 	case "gte":
 		return fmt.Sprintf("Must be at least %s", fieldErr.Param())
-	// Bobur aka boshqa taglar uchun ham chunarli description yozberin, playground packagedagi eng kop ishlatiladiganlari uchun...
+	case "lte":
+		return fmt.Sprintf("Must be at most %s", fieldErr.Param())
+	case "gt":
+		return fmt.Sprintf("Must be greater than %s", fieldErr.Param())
+	case "lt":
+		return fmt.Sprintf("Must be less than %s", fieldErr.Param())
+	case "len":
+		return fmt.Sprintf("Must be exactly %s characters", fieldErr.Param())
+	case "alpha":
+		return "Must contain only alphabetic characters"
+	case "alphanum":
+		return "Must contain only alphanumeric characters"
+	case "numeric":
+		return "Must be a valid number"
+	case "url":
+		return "Must be a valid URL"
+	case "uri":
+		return "Must be a valid URI"
+	case "uuid":
+		return "Must be a valid UUID"
+	case "oneof":
+		return fmt.Sprintf("Must be one of: %s", fieldErr.Param())
 	default:
-		return fmt.Sprintf("Failed validation on tag: %s. Param: %s", fieldErr.Tag(), fieldErr.Param())
+		return fmt.Sprintf("Failed validation: %s", fieldErr.Tag())
 	}
 }
