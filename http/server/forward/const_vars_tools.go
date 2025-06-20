@@ -1,3 +1,4 @@
+// Package forward provides helper functions for forwarding HTTP requests to use cases.
 package forward
 
 import (
@@ -15,6 +16,8 @@ const (
 	codeInvalidPathParams  = "INVALID_PATH_PARAMS"
 )
 
+// newRequest creates a new request of type T_Req.
+// It ensures that T_Req is a pointer to a struct.
 func newRequest[T_Req any]() (T_Req, error) {
 	var req T_Req
 
@@ -27,6 +30,7 @@ func newRequest[T_Req any]() (T_Req, error) {
 	return reqVal, nil
 }
 
+// isJSONMethod checks if a method is a JSON method.
 func isJSONMethod(method string) bool {
 	return slices.Contains([]string{"POST", "PUT", "PATCH"}, method)
 }

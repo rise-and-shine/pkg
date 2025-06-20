@@ -40,17 +40,6 @@ type Logger interface {
 	// Fatalf logs a formatted message at fatal level and then calls os.Exit(1).
 	Fatalf(format string, args ...any)
 
-	// Debugw logs a message with key-value pairs at debug level.
-	Debugw(msg string, keysAndValues ...any)
-	// Infow logs a message with key-value pairs at info level.
-	Infow(msg string, keysAndValues ...any)
-	// Warnw logs a message with key-value pairs at warn level.
-	Warnw(msg string, keysAndValues ...any)
-	// Errorw logs a message with key-value pairs at error level.
-	Errorw(msg string, keysAndValues ...any)
-	// Fatalw logs a message with key-value pairs at fatal level and then calls os.Exit(1).
-	Fatalw(msg string, keysAndValues ...any)
-
 	// With creates a new logger with the given key-value pairs.
 	// The returned logger inherits the properties of the original logger
 	// and includes the provided key-value pairs in all subsequent log entries.

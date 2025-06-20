@@ -1,3 +1,4 @@
+// Package forward provides helper functions for forwarding HTTP requests to use cases.
 package forward
 
 import (
@@ -5,6 +6,8 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
+// decodeBody decodes the request body into the given request struct.
+// It only decodes if the method is POST, PUT, or PATCH and the content type is application/json.
 func decodeBody[T_Req any](c *fiber.Ctx, req T_Req) error {
 	if !isJSONMethod(c.Method()) {
 		return nil // No body to decode for non-JSON methods
@@ -33,6 +36,7 @@ func decodeBody[T_Req any](c *fiber.Ctx, req T_Req) error {
 	return nil
 }
 
+// decodeQuery decodes the query params into the given request struct.
 func decodeQuery[T_Req any](c *fiber.Ctx, req T_Req) error {
 	if len(c.Queries()) == 0 {
 		return nil // No query params to decode
@@ -49,6 +53,7 @@ func decodeQuery[T_Req any](c *fiber.Ctx, req T_Req) error {
 	return nil
 }
 
+// decodePath decodes the path params into the given request struct.
 func decodePath[T_Req any](c *fiber.Ctx, req T_Req) error {
 	if len(c.Route().Params) == 0 {
 		return nil // No path params to decode
