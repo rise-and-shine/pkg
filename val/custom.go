@@ -6,12 +6,12 @@ import (
 	"github.com/go-playground/validator/v10"
 )
 
-// Phone number regex patterns
+// Phone number regex patterns.
 var (
 	phoneUzRegex = regexp.MustCompile(`^998[0-9]{9}$`)
 )
 
-// validatePhoneUz is a validator function for phone_uz tag
+// validatePhoneUz is a validator function for phone_uz tag.
 func validatePhoneUz(fl validator.FieldLevel) bool {
 	phone := fl.Field().String()
 	return IsPhoneUz(phone)
@@ -21,13 +21,13 @@ func IsPhoneUz(phone string) bool {
 	return phoneUzRegex.MatchString(phone)
 }
 
-// validateStrongPassword is a validator function for strong_password tag
+// validateStrongPassword is a validator function for strong_password tag.
 func validateStrongPassword(fl validator.FieldLevel) bool {
 	password := fl.Field().String()
 	return IsStrongPassword(password)
 }
 
-// IsStrongPassword checks if the password meets strong password criteria
+// IsStrongPassword checks if the password meets strong password criteria.
 func IsStrongPassword(password string) bool {
 	// A strong password must:
 	if len(password) < 8 {

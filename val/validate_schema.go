@@ -3,6 +3,7 @@ package val
 import (
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/code19m/errx"
@@ -11,7 +12,7 @@ import (
 
 // ValidateSchema validates a given schema using the go-playground/validator package.
 func ValidateSchema(schema any) error {
-	err := GetValidator().Struct(schema)
+	err := getValidator().Struct(schema)
 
 	if err == nil {
 		return nil
@@ -28,14 +29,14 @@ func ValidateSchema(schema any) error {
 
 		return errx.New(
 			"Validation failed. See fields for details.",
-			errx.WithCode(CodeInvalidInput),
+			errx.WithCode(CodeValidationFailed),
 			errx.WithType(errx.T_Validation),
 			errx.WithFields(fields),
 		)
 	}
 	return errx.New(
 		fmt.Sprintf("Unknown validation error: %s", err.Error()),
-		errx.WithCode(CodeInvalidInput),
+		errx.WithCode(CodeValidationFailed),
 		errx.WithType(errx.T_Validation),
 	)
 }
@@ -49,12 +50,12 @@ func getFieldErrDescription(fieldErr validator.FieldError) string {
 	case "email":
 		return "Invalid email format"
 	case "min":
-		if fieldErr.Kind().String() == "string" {
+		if fieldErr.Kind() == reflect.String {
 			return fmt.Sprintf("Must be at least %s characters", param)
 		}
 		return fmt.Sprintf("Must be at least %s", param)
 	case "max":
-		if fieldErr.Kind().String() == "string" {
+		if fieldErr.Kind() == reflect.String {
 			return fmt.Sprintf("Must be at most %s characters", param)
 		}
 		return fmt.Sprintf("Must be at most %s", param)
@@ -67,7 +68,7 @@ func getFieldErrDescription(fieldErr validator.FieldError) string {
 	case "lt":
 		return fmt.Sprintf("Must be less than %s", param)
 	case "len":
-		if fieldErr.Kind().String() == "string" {
+		if fieldErr.Kind() == reflect.String {
 			return fmt.Sprintf("Must be exactly %s characters", param)
 		}
 		return fmt.Sprintf("Must have exactly %s items", param)

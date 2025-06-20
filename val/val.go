@@ -6,36 +6,40 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/code19m/errx"
 	"github.com/go-playground/validator/v10"
 )
 
 var (
-	validate *validator.Validate //nolint: gochecknoglobals
-	once     sync.Once           //nolint: gochecknoglobals
+	validate *validator.Validate //nolint: gochecknoglobals // temporarily using a global variable until better solution is found.
+	once     sync.Once           //nolint: gochecknoglobals // temporarily using a global variable until better solution is found.
 )
 
-// GetValidator returns the singleton validator instance with custom configurations
-func GetValidator() *validator.Validate {
+// RegisterCustomValidation registers a custom validation function for a specific tag.
+func RegisterCustomValidation(tag string, fn validator.Func) error {
+	// Ensure the validator instance is initialized
+	return errx.Wrap(getValidator().RegisterValidation(tag, fn))
+}
+
+// getValidator returns the singleton validator instance with custom configurations.
+func getValidator() *validator.Validate {
 	once.Do(func() {
 		validate = validator.New()
 		validate.RegisterTagNameFunc(getTagName)
-		registerCustomValidations()
+		registerCommonValidations()
 	})
 	return validate
 }
 
-func init() { //nolint: gochecknoinits
-	// Initialize the validator on package load
-	GetValidator()
-}
+// registerCommonValidations registers all custom validation functions.
+func registerCommonValidations() {
+	v := getValidator()
 
-// registerCustomValidations registers all custom validation functions
-func registerCustomValidations() {
 	// Register phone_uz validation
-	validate.RegisterValidation("phone_uz", validatePhoneUz)
+	_ = v.RegisterValidation("phone_uz", validatePhoneUz)
 
 	// Register strong_password validation
-	validate.RegisterValidation("strong_password", validateStrongPassword)
+	_ = v.RegisterValidation("strong_password", validateStrongPassword)
 
 	// Add more custom validations as needed
 	// validate.RegisterValidation("custom_tag", customValidationFunc)
