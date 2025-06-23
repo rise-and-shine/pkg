@@ -18,13 +18,13 @@ import (
 // This middleware captures internal errors, extracts relevant metadata from the request
 // context, and sends alerts through the provided alert.Provider. It only processes
 // errors of type errx.T_Internal.
-func NewAlertingMW(log logger.Logger, provider alert.Provider) server.Middleware {
+func NewAlertingMW(logger logger.Logger, provider alert.Provider) server.Middleware {
 	return server.Middleware{
 		Priority: 600,
 		Handler: func(c *fiber.Ctx) error {
 			ctx := c.UserContext()
 
-			log = log.Named("middleware.alerting").WithContext(ctx)
+			log := logger.Named("middleware.alerting").WithContext(ctx)
 
 			err := c.Next()
 

@@ -18,13 +18,13 @@ import (
 // method, path, status code, duration, and user context. It also logs errors with
 // detailed information when they occur. The logging level is determined by the
 // HTTP status code (info for 2xx/3xx, warn for 4xx, error for 5xx).
-func NewLoggerMW(log logger.Logger) server.Middleware {
+func NewLoggerMW(logger logger.Logger) server.Middleware {
 	return server.Middleware{
 		Priority: 500,
 		Handler: func(c *fiber.Ctx) error {
 			ctx := c.UserContext()
 
-			log = log.Named("middleware.logger").WithContext(ctx)
+			log := logger.Named("middleware.logger").WithContext(ctx)
 
 			start := time.Now()
 
