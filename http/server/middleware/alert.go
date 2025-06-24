@@ -55,7 +55,7 @@ func NewAlertingMW(logger logger.Logger, provider alert.Provider) server.Middlew
 
 			sendErr := provider.SendError(ctx, e.Code(), e.Error(), operation, details)
 			if sendErr != nil {
-				log.With("alert_send_error", sendErr).Warn("failed to send alert")
+				log.With("alert_send_error", sendErr.Error()).Warn("failed to send alert")
 			}
 
 			return err

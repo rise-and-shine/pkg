@@ -2,26 +2,31 @@ package outbox
 
 import (
 	"context"
+	"strings"
+
 	"github.com/ThreeDotsLabs/watermill"
 	wkafka "github.com/ThreeDotsLabs/watermill-kafka/pkg/kafka"
 	"github.com/ThreeDotsLabs/watermill-sql/v3/pkg/sql"
 	"github.com/ThreeDotsLabs/watermill/components/forwarder"
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/code19m/errx"
-	"github.com/code19m/pkg/alert"
-	log "github.com/code19m/pkg/logger"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
-	"strings"
+	"github.com/rise-and-shine/pkg/alert"
+	"github.com/rise-and-shine/pkg/logger"
 )
 
-type outboxWorker struct {
+type Worker struct {
 	forwarder *forwarder.Forwarder
 	publisher message.Publisher
 }
 
-func NewOutboxWorker(cfg WorkerConfig, pool *pgxpool.Pool, logger log.Logger, alertProvider alert.Provider) (*outboxWorker, error) {
-
+func NewWorker(
+	cfg WorkerConfig,
+	pool *pgxpool.Pool,
+	logger logger.Logger,
+	alertProvider alert.Provider,
+) (*Worker, error) {
 	// wrappers for watermill compatability
 	loggerAdapter := newLoggerAdapter(logger.Named("outbox"))
 	db := stdlib.OpenDBFromPool(pool)
@@ -51,17 +56,17 @@ func NewOutboxWorker(cfg WorkerConfig, pool *pgxpool.Pool, logger log.Logger, al
 		return nil, errx.Wrap(err)
 	}
 
-	return &outboxWorker{
+	return &Worker{
 		forwarder: forwarder,
 		publisher: publisher,
 	}, nil
 }
 
-func (w *outboxWorker) Start() error {
+func (w *Worker) Start() error {
 	return w.forwarder.Run(context.Background())
 }
 
-func (w *outboxWorker) Stop() error {
+func (w *Worker) Stop() error {
 	// stop forwarder
 	err := w.forwarder.Close()
 	if err != nil {
@@ -79,13 +84,13 @@ func newSubscriber(cfg WorkerConfig, db sql.Beginner, logger watermill.LoggerAda
 		AckDeadline:    nil,
 		ResendInterval: cfg.ResendInterval,
 		SchemaAdapter: sql.DefaultPostgreSQLSchema{
-			GenerateMessagesTableName: func(topic string) string {
+			GenerateMessagesTableName: func(_ string) string {
 				return outboxTableName
 			},
-			SubscribeBatchSize: int(cfg.BatchSize),
+			SubscribeBatchSize: cfg.BatchSize,
 		},
 		OffsetsAdapter: sql.DefaultPostgreSQLOffsetsAdapter{
-			GenerateMessagesOffsetsTableName: func(topic string) string {
+			GenerateMessagesOffsetsTableName: func(_ string) string {
 				return offsetTableName
 			},
 		},
@@ -104,7 +109,7 @@ func newPublisher(cfg WorkerConfig, logger watermill.LoggerAdapter) (message.Pub
 	saramaCfg := wkafka.DefaultSaramaSyncPublisherConfig()
 	saramaCfg.ClientID = cfg.ServiceName
 
-	marshaler := wkafka.NewWithPartitioningMarshaler(func(topic string, msg *message.Message) (string, error) {
+	marshaler := wkafka.NewWithPartitioningMarshaler(func(_ string, msg *message.Message) (string, error) {
 		partitionKey := msg.Metadata.Get("partition_key")
 		if partitionKey == "" {
 			return "", errx.New("partition key is empty")
@@ -118,22 +123,21 @@ func newPublisher(cfg WorkerConfig, logger watermill.LoggerAdapter) (message.Pub
 	}
 
 	return publisher, nil
-
 }
 
 func newAlertMiddleware(alertProvider alert.Provider, logger watermill.LoggerAdapter) message.HandlerMiddleware {
 	return func(next message.HandlerFunc) message.HandlerFunc {
 		return func(msg *message.Message) ([]*message.Message, error) {
-			messagesm, err := next(msg)
+			messages, err := next(msg)
 			if err == nil {
-				return messagesm, nil
+				return messages, nil
 			}
 
 			operation := "outbox_worker"
 			details := make(map[string]string)
 
 			sendErr := alertProvider.SendError(context.Background(), "", err.Error(), operation, details)
-			if err != nil {
+			if sendErr != nil {
 				logger.Error("Failed to send error alert", sendErr, nil)
 			}
 

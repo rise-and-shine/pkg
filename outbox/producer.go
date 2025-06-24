@@ -2,36 +2,36 @@ package outbox
 
 import (
 	"context"
+
 	"github.com/IBM/sarama"
 	"github.com/code19m/errx"
-	"github.com/code19m/pkg/kafka/otelsarama"
 	"github.com/google/uuid"
+	"github.com/rise-and-shine/pkg/kafka/otelsarama"
 	"github.com/uptrace/bun"
 	"go.opentelemetry.io/otel"
 	"google.golang.org/protobuf/proto"
 )
 
-type OutboxProducer interface {
-	ProduceProtoMessages(_ context.Context, idb bun.IDB, topic, key string, message proto.Message)
+type Producer interface {
+	ProduceProtoMessages(_ context.Context, idb bun.IDB, topic, key string, message proto.Message) error
 }
 
-func NewProducer() *outboxProducer {
-	return &outboxProducer{
+func NewProducer() Producer {
+	return &producer{
 		tableName: outboxTableName,
 	}
 }
 
-type outboxProducer struct {
+type producer struct {
 	tableName string
 }
 
-func (op *outboxProducer) ProduceProtoMessages(
+func (op *producer) ProduceProtoMessages(
 	ctx context.Context,
 	idb bun.IDB,
 	topic, key string,
 	message proto.Message,
 ) error {
-
 	if _, ok := idb.(bun.Tx); !ok {
 		return errx.New("idb must be bun.Tx instance")
 	}

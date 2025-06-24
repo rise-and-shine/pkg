@@ -3,33 +3,34 @@ package kafka
 import (
 	"context"
 	"errors"
+	"strings"
+
 	"github.com/IBM/sarama"
 	"github.com/code19m/errx"
-	"github.com/code19m/pkg/alert"
-	log "github.com/code19m/pkg/logger"
-	"strings"
+	"github.com/rise-and-shine/pkg/alert"
+	"github.com/rise-and-shine/pkg/logger"
 )
 
-type consumer struct {
+type Consumer struct {
 	topic         string
 	cfg           ConsumerConfig
 	saramaCfg     *sarama.Config
-	logger        log.Logger
+	logger        logger.Logger
 	consumerGroup sarama.ConsumerGroup
 	handleFn      HandleFunc
 	alertProvider alert.Provider
 }
 
-// HandleFunc is a delivery handler that should be injected into the consumer
+// HandleFunc is a delivery handler that should be injected into the consumer.
 type HandleFunc func(context.Context, *sarama.ConsumerMessage) error
 
-// NewConsumer creates a new kafka consumer
+// NewConsumer creates a new kafka consumer.
 func NewConsumer(
 	cfg ConsumerConfig,
 	alertProvider alert.Provider,
-	logger log.Logger,
+	logger logger.Logger,
 	handleFn HandleFunc,
-) (*consumer, error) {
+) (*Consumer, error) {
 	saramaCfg, err := cfg.getSaramaConfig()
 	if err != nil {
 		return nil, errx.Wrap(err)
@@ -41,7 +42,7 @@ func NewConsumer(
 		return nil, errx.Wrap(err)
 	}
 
-	return &consumer{
+	return &Consumer{
 		topic:         cfg.Topic,
 		cfg:           cfg,
 		saramaCfg:     saramaCfg,
@@ -52,8 +53,8 @@ func NewConsumer(
 	}, nil
 }
 
-// Start starts the consumer and begins consuming messages
-func (c *consumer) Start() error {
+// Start starts the consumer and begins consuming messages.
+func (c *Consumer) Start() error {
 	// the main consume loop, parent of the ConsumerClaim() partition consumer loop
 	for {
 		err := c.consumerGroup.Consume(context.Background(), []string{c.topic}, c)
@@ -68,25 +69,25 @@ func (c *consumer) Start() error {
 	}
 }
 
-func (c *consumer) Stop() error {
+func (c *Consumer) Stop() error {
 	if err := c.consumerGroup.Close(); err != nil {
 		return errx.Wrap(err)
 	}
 	return nil
 }
 
-// Implements sarama.ConsumerGroupHandler contract
-func (c *consumer) Setup(session sarama.ConsumerGroupSession) error {
+// Setup implements sarama.ConsumerGroupHandler contract.
+func (c *Consumer) Setup(_ sarama.ConsumerGroupSession) error {
 	return nil
 }
 
-// Implements sarama.ConsumerGroupHandler contract
-func (c *consumer) Cleanup(session sarama.ConsumerGroupSession) error {
+// Cleanup implements sarama.ConsumerGroupHandler contract.
+func (c *Consumer) Cleanup(_ sarama.ConsumerGroupSession) error {
 	return nil
 }
 
 // ConsumeClaim must start a consumer loop of ConsumerGroupClaim's Messages().
-func (c *consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
+func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
 	// NOTE:
 	// Do not move the code below to a goroutine.
 	// The `ConsumeClaim` itself is called within a goroutine,
@@ -118,7 +119,7 @@ func (c *consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim saram
 	}
 }
 
-func (c *consumer) buildHandlerChain() HandleFunc {
+func (c *Consumer) buildHandlerChain() HandleFunc {
 	// start with the core business logic handler
 	handler := c.handleFn
 
@@ -128,9 +129,9 @@ func (c *consumer) buildHandlerChain() HandleFunc {
 	handler = c.handlerWithLogging(handler)       // 6. logging
 	handler = c.handlerWithAlerting(handler)      // 5. alerting
 	handler = c.handlerWithMetaInjection(handler) // 4. meta injection
-	handler = c.handlerWithTimeout(handler)       // 7. timeout
-	handler = c.handlerWithTracing(handler)       // 5. tracing
-	handler = c.handlerWithRecovery(handler)      // 4. recovery (outermost)
+	handler = c.handlerWithTimeout(handler)       // 3. timeout
+	handler = c.handlerWithTracing(handler)       // 2. tracing
+	handler = c.handlerWithRecovery(handler)      // 1. recovery (outermost)
 
 	return handler
 }

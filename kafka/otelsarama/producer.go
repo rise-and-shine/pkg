@@ -37,9 +37,9 @@ type syncProducer struct {
 }
 
 // SendMessage calls sarama.SyncProducer.SendMessage and traces the request.
-func (p *syncProducer) SendMessage(msg *sarama.ProducerMessage) (partition int32, offset int64, err error) {
+func (p *syncProducer) SendMessage(msg *sarama.ProducerMessage) (int32, int64, error) {
 	span := startProducerSpan(p.cfg, p.saramaConfig.Version, msg)
-	partition, offset, err = p.SyncProducer.SendMessage(msg)
+	partition, offset, err := p.SyncProducer.SendMessage(msg)
 	finishProducerSpan(span, partition, offset, err)
 	return partition, offset, err
 }
@@ -127,7 +127,11 @@ type producerMessageContext struct {
 //
 // If `Return.Successes` is false, there is no way to know partition and offset of
 // the message.
-func WrapAsyncProducer(saramaConfig *sarama.Config, p sarama.AsyncProducer, opts ...Option) sarama.AsyncProducer {
+func WrapAsyncProducer( //nolint:gocognit,funlen // intentional
+	saramaConfig *sarama.Config,
+	p sarama.AsyncProducer,
+	opts ...Option,
+) sarama.AsyncProducer {
 	cfg := newConfig(opts...)
 	if saramaConfig == nil {
 		saramaConfig = sarama.NewConfig()

@@ -3,22 +3,24 @@ package kafka
 import (
 	"context"
 	"fmt"
+	"runtime"
+	"time"
+
 	"github.com/IBM/sarama"
 	"github.com/avast/retry-go/v4"
 	"github.com/code19m/errx"
-	"github.com/code19m/pkg/kafka/otelsarama"
-	"github.com/code19m/pkg/meta"
 	"github.com/google/uuid"
+	"github.com/rise-and-shine/pkg/kafka/otelsarama"
+	"github.com/rise-and-shine/pkg/meta"
 	"github.com/samber/lo"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/codes"
 	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
 	"go.opentelemetry.io/otel/trace"
-	"runtime"
-	"time"
 )
 
-// handlerWithRecovery is a wrapper around the handler to add recovery support
-func (c *consumer) handlerWithRecovery(next HandleFunc) HandleFunc {
+// handlerWithRecovery is a wrapper around the handler to add recovery support.
+func (c *Consumer) handlerWithRecovery(next HandleFunc) HandleFunc {
 	return func(ctx context.Context, msg *sarama.ConsumerMessage) (err error) {
 		defer func() {
 			if r := recover(); r != nil {
@@ -42,9 +44,9 @@ func (c *consumer) handlerWithRecovery(next HandleFunc) HandleFunc {
 	}
 }
 
-// handlerWithTracing is a wrapper around the handler to add tracing support
-func (c *consumer) handlerWithTracing(next HandleFunc) HandleFunc {
-	return func(ctx context.Context, msg *sarama.ConsumerMessage) (err error) {
+// handlerWithTracing is a wrapper around the handler to add tracing support.
+func (c *Consumer) handlerWithTracing(next HandleFunc) HandleFunc {
+	return func(ctx context.Context, msg *sarama.ConsumerMessage) error {
 		// extract tracing info from headers
 		ctx = otel.GetTextMapPropagator().Extract(ctx, otelsarama.NewConsumerMessageCarrier(msg))
 
@@ -59,42 +61,41 @@ func (c *consumer) handlerWithTracing(next HandleFunc) HandleFunc {
 			trace.WithSpanKind(trace.SpanKindConsumer),
 		)
 
-		defer func() {
-			// end the span
-			if err != nil {
-				span.RecordError(err)
-			}
-			span.End()
-		}()
-
 		// call the next handler
-		return next(ctx, msg)
-	}
-}
-
-// handlerWithTimeout is a wrapper around the handler to add timeout support
-func (c *consumer) handlerWithTimeout(next HandleFunc) HandleFunc {
-	return func(ctx context.Context, msg *sarama.ConsumerMessage) (err error) {
-		ctx, cancel := context.WithTimeout(ctx, c.cfg.HandlerTimeout)
-		defer cancel()
-		return next(ctx, msg)
-	}
-}
-
-// handlerWithMetaInjection is a wrapper around the handler to add meta injectionHandlerWithRecovery
-func (c *consumer) handlerWithMetaInjection(next HandleFunc) HandleFunc {
-	return func(ctx context.Context, msg *sarama.ConsumerMessage) (err error) {
-		// get from span context
-		span := trace.SpanFromContext(ctx)
-		traceId := span.SpanContext().TraceID().String()
-
-		// if not found, generate a new one
-		if traceId == "" {
-			traceId = uuid.NewString()
+		err := next(ctx, msg)
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
 		}
 
-		metaData := map[meta.ContextKey]string{
-			meta.TraceID:        traceId,
+		return err
+	}
+}
+
+// handlerWithTimeout is a wrapper around the handler to add timeout support.
+func (c *Consumer) handlerWithTimeout(next HandleFunc) HandleFunc {
+	return func(ctx context.Context, msg *sarama.ConsumerMessage) error {
+		ctx, cancel := context.WithTimeout(ctx, c.cfg.HandlerTimeout)
+		defer cancel()
+
+		return next(ctx, msg)
+	}
+}
+
+// handlerWithMetaInjection is a wrapper around the handler to add meta injectionHandlerWithRecovery.
+func (c *Consumer) handlerWithMetaInjection(next HandleFunc) HandleFunc {
+	return func(ctx context.Context, msg *sarama.ConsumerMessage) error {
+		// get from span context
+		span := trace.SpanFromContext(ctx)
+		traceID := span.SpanContext().TraceID().String()
+
+		// if not found, generate a new one
+		if traceID == "" {
+			traceID = uuid.NewString()
+		}
+
+		metaData := map[meta.ContextKey]string{ //nolint:exhaustive // exhaustive is false positive here, as we are not using all keys
+			meta.TraceID:        traceID,
 			meta.ServiceName:    c.cfg.ServiceName,
 			meta.ServiceVersion: c.cfg.ServiceVersion,
 		}
@@ -106,8 +107,8 @@ func (c *consumer) handlerWithMetaInjection(next HandleFunc) HandleFunc {
 	}
 }
 
-// handlerWithAlerting is a wrapper around the handler to add alerting
-func (c *consumer) handlerWithAlerting(next HandleFunc) HandleFunc {
+// handlerWithAlerting is a wrapper around the handler to add alerting.
+func (c *Consumer) handlerWithAlerting(next HandleFunc) HandleFunc {
 	return func(ctx context.Context, msg *sarama.ConsumerMessage) error {
 		logger := c.logger.Named("alerting").WithContext(ctx)
 
@@ -135,16 +136,16 @@ func (c *consumer) handlerWithAlerting(next HandleFunc) HandleFunc {
 	}
 }
 
-// handleWithLogging is a wrapper around the handler to add logging
-func (c *consumer) handlerWithLogging(next HandleFunc) HandleFunc {
-	return func(ctx context.Context, msg *sarama.ConsumerMessage) (err error) {
+// handleWithLogging is a wrapper around the handler to add logging.
+func (c *Consumer) handlerWithLogging(next HandleFunc) HandleFunc {
+	return func(ctx context.Context, msg *sarama.ConsumerMessage) error {
 		logger := c.logger.Named("access_logger").WithContext(ctx)
 
 		start := time.Now()
 
 		// extra recovery for catching panic in earler staps of the handler
 		withRecovery := c.handlerWithRecovery(next)
-		err = withRecovery(ctx, msg)
+		err := withRecovery(ctx, msg)
 
 		duration := time.Since(start)
 
@@ -172,18 +173,18 @@ func (c *consumer) handlerWithLogging(next HandleFunc) HandleFunc {
 	}
 }
 
-// handlerWithRecovery is a wrapper around the handler to add recovery
-// TODO: Handle errors more gracefully. For example: Use dead letter queue
-func (c *consumer) handlerWithErrorHandling(next HandleFunc) HandleFunc {
-	return func(ctx context.Context, msg *sarama.ConsumerMessage) (err error) {
+// handlerWithRecovery is a wrapper around the handler to add recovery.
+// TODO: Handle errors more gracefully. For example: Use dead letter queue.
+func (c *Consumer) handlerWithErrorHandling(next HandleFunc) HandleFunc {
+	return func(ctx context.Context, msg *sarama.ConsumerMessage) error {
 		// make any error as internal
 		return errx.Wrap(next(ctx, msg), errx.WithType(errx.T_Internal))
 	}
 }
 
-// handlerWithRetry is a wrapper around the handler to add retry support with backoff and jitter
-func (c *consumer) handlerWithRetry(next HandleFunc) HandleFunc {
-	return func(ctx context.Context, msg *sarama.ConsumerMessage) (err error) {
+// handlerWithRetry is a wrapper around the handler to add retry support with backoff and jitter.
+func (c *Consumer) handlerWithRetry(next HandleFunc) HandleFunc {
+	return func(ctx context.Context, msg *sarama.ConsumerMessage) error {
 		if c.cfg.RetryDisabled {
 			return next(ctx, msg)
 		}
@@ -191,7 +192,7 @@ func (c *consumer) handlerWithRetry(next HandleFunc) HandleFunc {
 		logger := c.logger.Named("retry").WithContext(ctx)
 
 		// configure retry with backoff and jitter
-		err = retry.Do(
+		err := retry.Do(
 			func() error {
 				return next(ctx, msg)
 			},

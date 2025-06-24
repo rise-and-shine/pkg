@@ -2,18 +2,18 @@ package outbox
 
 import (
 	"github.com/ThreeDotsLabs/watermill"
-	log "github.com/code19m/pkg/logger"
+	"github.com/rise-and-shine/pkg/logger"
 	"go.uber.org/zap"
 )
 
 var _ watermill.LoggerAdapter = (*loggerAdapter)(nil)
 
-// loggerAdapter is to adapt zap sugared logger to watermill Logger
+// loggerAdapter is to adapt zap sugared logger to watermill Logger.
 type loggerAdapter struct {
-	base log.Logger
+	base logger.Logger
 }
 
-func newLoggerAdapter(logger log.Logger) *loggerAdapter {
+func newLoggerAdapter(logger logger.Logger) *loggerAdapter {
 	return &loggerAdapter{
 		base: logger,
 	}
@@ -46,7 +46,7 @@ func (l *loggerAdapter) With(fields watermill.LogFields) watermill.LoggerAdapter
 	}
 }
 
-func (l *loggerAdapter) withZapFields(fields watermill.LogFields) log.Logger {
+func (l *loggerAdapter) withZapFields(fields watermill.LogFields) logger.Logger {
 	logger := l.base
 	for k, v := range fields {
 		logger = logger.With(zap.Any(k, v))

@@ -2,7 +2,7 @@ package kafka
 
 import "github.com/rcrowley/go-metrics"
 
-func init() {
+func init() { //nolint:gochecknoinits // intentional
 	// to prevent memory leak
-	metrics.UseNilMetrics = true
+	metrics.UseNilMetrics = true //nolint:reassign // intentionally
 }

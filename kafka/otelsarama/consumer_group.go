@@ -26,7 +26,10 @@ type consumerGroupHandler struct {
 
 // ConsumeClaim wraps the session and claim to add instruments for messages.
 // It implements parts of `ConsumerGroupHandler`.
-func (h *consumerGroupHandler) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
+func (h *consumerGroupHandler) ConsumeClaim(
+	session sarama.ConsumerGroupSession,
+	claim sarama.ConsumerGroupClaim,
+) error {
 	// Wrap claim
 	dispatcher := newConsumerMessagesDispatcherWrapper(claim, h.cfg)
 	go dispatcher.Run()
