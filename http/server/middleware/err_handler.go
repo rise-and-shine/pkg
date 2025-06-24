@@ -40,7 +40,7 @@ func NewErrorHandlerMW(debug bool) server.Middleware {
 				"error":    buildErrorSchema(e, debug),
 			})
 
-			return err
+			return e
 		},
 	}
 }
@@ -115,6 +115,10 @@ func mapAnyErrorToErrorX(err error) errx.ErrorX {
 			fiberErr.Message,
 			errx.WithCode(codeRouterError),
 			errx.WithType(t),
+			errx.WithDetails(errx.D{
+				"fiber_code": fiberErr.Code,
+				"fiber_msg":  fiberErr.Message,
+			}),
 		)
 	}
 

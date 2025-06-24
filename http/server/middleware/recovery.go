@@ -16,11 +16,11 @@ import (
 // This middleware serves as a safety net to catch any unexpected panics that may occur
 // during request processing. It captures the stack trace and panic message, logs the
 // information, and returns a structured error that can be handled by error middleware.
-func NewRecoveryMW(log logger.Logger) server.Middleware {
+func NewRecoveryMW(logger logger.Logger) server.Middleware {
 	return server.Middleware{
 		Priority: 1000,
 		Handler: func(c *fiber.Ctx) (err error) {
-			log = log.Named("middleware.recovery").WithContext(c.UserContext())
+			log := logger.Named("middleware.recovery").WithContext(c.UserContext())
 
 			defer func() {
 				if r := recover(); r != nil {
