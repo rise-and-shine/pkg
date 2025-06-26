@@ -7,8 +7,16 @@ import (
 	"github.com/IBM/sarama"
 	"github.com/code19m/errx"
 	"github.com/rise-and-shine/pkg/kafka/otelsarama"
+	"github.com/samber/lo"
 	"go.opentelemetry.io/otel"
 )
+
+// Message represents a Producer Kafka message with key, value, and headers.
+type Message struct {
+	Key     []byte
+	Value   []byte
+	Headers map[string]string
+}
 
 // Producer represents a Kafka producer.
 type Producer struct {
@@ -46,39 +54,59 @@ func NewProducer(
 }
 
 // SendMessage sends a message to the configured Kafka topic.
-func (p *Producer) SendMessage(ctx context.Context, key []byte, value []byte, headers map[string]string) error {
-	// Start timing for logging
-	// Create message and set headers
-	msg := &sarama.ProducerMessage{
-		Topic: p.cfg.Topic,
-		Key:   sarama.ByteEncoder(key),
-		Value: sarama.ByteEncoder(value),
+func (p *Producer) SendMessage(ctx context.Context, m *Message) error {
+	kafkaMsg := p.buildKafkaProducerMsg(ctx, m)
+
+	// Produce message
+	partition, offset, err := p.syncProducer.SendMessage(kafkaMsg)
+	if err != nil {
+		return errx.Wrap(err, errx.WithDetails(errx.D{
+			"topic":     kafkaMsg.Topic,
+			"partition": partition,
+			"offset":    offset,
+			"key":       string(m.Key),
+			"headers":   kafkaMsg.Headers,
+		}))
 	}
 
-	// Add any custom headers
-	for k, v := range headers {
+	return nil
+}
+
+// SendMessages sends multiple messages to the configured Kafka topic.
+func (p *Producer) SendMessages(ctx context.Context, messages []*Message) error {
+	kafkaMessages := lo.Map(messages, func(m *Message, _ int) *sarama.ProducerMessage {
+		return p.buildKafkaProducerMsg(ctx, m)
+	})
+
+	err := p.syncProducer.SendMessages(kafkaMessages)
+	if err != nil {
+		return errx.Wrap(err, errx.WithDetails(errx.D{
+			"topic": p.cfg.Topic,
+		}))
+	}
+
+	return nil
+}
+
+func (p *Producer) buildKafkaProducerMsg(ctx context.Context, m *Message) *sarama.ProducerMessage {
+	msg := &sarama.ProducerMessage{
+		Topic: p.cfg.Topic,
+		Key:   sarama.ByteEncoder(m.Key),
+		Value: sarama.ByteEncoder(m.Value),
+	}
+
+	// Add headers to the message
+	for k, v := range m.Headers {
 		msg.Headers = append(msg.Headers, sarama.RecordHeader{
 			Key:   []byte(k),
 			Value: []byte(v),
 		})
 	}
 
-	// Add tracing information
+	// Inject tracing information into the message
 	p.injectTracing(ctx, msg)
 
-	// Produce message with error handling and logging
-	partition, offset, err := p.syncProducer.SendMessage(msg)
-	if err != nil {
-		return errx.Wrap(err, errx.WithDetails(errx.D{
-			"topic":     msg.Topic,
-			"partition": partition,
-			"offset":    offset,
-			"key":       string(key),
-			"headers":   msg.Headers,
-		}))
-	}
-
-	return nil
+	return msg
 }
 
 // injectTracing adds OpenTelemetry tracing to the context and message.
