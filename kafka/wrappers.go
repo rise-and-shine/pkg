@@ -96,8 +96,8 @@ func (c *Consumer) handlerWithMetaInjection(next HandleFunc) HandleFunc {
 
 		metaData := map[meta.ContextKey]string{ //nolint:exhaustive // exhaustive is false positive here, as we are not using all keys
 			meta.TraceID:        traceID,
-			meta.ServiceName:    c.cfg.ServiceName,
-			meta.ServiceVersion: c.cfg.ServiceVersion,
+			meta.ServiceName:    c.serviceName,
+			meta.ServiceVersion: c.serviceVersion,
 		}
 
 		// add meta to context for downstream handlers

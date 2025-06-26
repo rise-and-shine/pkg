@@ -13,16 +13,16 @@ const (
 	oldestOffset = "oldest"
 )
 
+// ConsumerConfig holds configuration for a Kafka consumer.
 type ConsumerConfig struct {
-	ServiceName    string `yaml:"service_name"    validate:"required"`
-	ServiceVersion string `yaml:"service_version" validate:"required"`
-	Brokers        string `yaml:"brokers"         validate:"required"`
-	Topic          string `yaml:"topic"           validate:"required"`
+	Brokers      string `yaml:"brokers"       validate:"required"`
+	Topic        string `yaml:"topic"         validate:"required"`
+	SaslUsername string `yaml:"sasl_username"`
+	SaslPassword string `yaml:"sasl_password"`
 
-	// if not set default to the service name
-	GroupID string `yaml:"group_id"`
-
-	KafkeVersion   string        `yaml:"kafke_version"   default:"3.6.0"`
+	// If not set default to the service name.
+	GroupID        string        `yaml:"group_id"`
+	KafkaVersion   string        `yaml:"kafka_version"   default:"3.6.0"`
 	InitialOffset  string        `yaml:"initial_offset"  default:"newest" validate:"oneof=newest oldest"`
 	HandlerTimeout time.Duration `yaml:"handler_timeout" default:"30s"`
 	RetryDisabled  bool          `yaml:"retry_disabled"  default:"false"`
@@ -30,19 +30,25 @@ type ConsumerConfig struct {
 	RetryDelay     time.Duration `yaml:"retry_delay"     default:"100ms"`
 }
 
-func (c *ConsumerConfig) getSaramaConfig() (*sarama.Config, error) {
+func (c *ConsumerConfig) getSaramaConfig(serviceName string) (*sarama.Config, error) {
 	if c.GroupID == "" {
-		c.GroupID = c.ServiceName
+		c.GroupID = serviceName
 	}
-
 	saramaConf := sarama.NewConfig()
-	saramaConf.ClientID = c.ServiceName
-
-	version, err := sarama.ParseKafkaVersion(c.KafkeVersion)
+	saramaConf.ClientID = c.GroupID
+	version, err := sarama.ParseKafkaVersion(c.KafkaVersion)
 	if err != nil {
 		return nil, errx.Wrap(err)
 	}
 	saramaConf.Version = version
+
+	// Currently support only SASL_PLAINTEXT authentication.
+	if c.SaslUsername != "" && c.SaslPassword != "" {
+		saramaConf.Net.SASL.Enable = true
+		saramaConf.Net.SASL.User = c.SaslUsername
+		saramaConf.Net.SASL.Password = c.SaslPassword
+		saramaConf.Net.SASL.Mechanism = sarama.SASLTypePlaintext
+	}
 
 	switch c.InitialOffset {
 	case newestOffset:
@@ -54,4 +60,39 @@ func (c *ConsumerConfig) getSaramaConfig() (*sarama.Config, error) {
 	}
 
 	return saramaConf, nil
+}
+
+// ProducerConfig holds configuration for a Kafka producer.
+type ProducerConfig struct {
+	Brokers      string `yaml:"brokers"       validate:"required"`
+	Topic        string `yaml:"topic"         validate:"required"`
+	SaslUsername string `yaml:"sasl_username"`
+	SaslPassword string `yaml:"sasl_password"`
+
+	KafkaVersion string `yaml:"kafka_version" default:"3.6.0"`
+}
+
+func (c *ProducerConfig) getSaramaConfig(serviceName string) (*sarama.Config, error) {
+	saramaCfg := sarama.NewConfig()
+	saramaCfg.ClientID = serviceName
+	version, err := sarama.ParseKafkaVersion(c.KafkaVersion)
+	if err != nil {
+		return nil, errx.Wrap(err)
+	}
+	saramaCfg.Version = version
+
+	// Currently support only SASL_PLAINTEXT authentication.
+	if c.SaslUsername != "" && c.SaslPassword != "" {
+		saramaCfg.Net.SASL.Enable = true
+		saramaCfg.Net.SASL.User = c.SaslUsername
+		saramaCfg.Net.SASL.Password = c.SaslPassword
+		saramaCfg.Net.SASL.Mechanism = sarama.SASLTypePlaintext
+	}
+
+	// Set Return.Successes and Return.Errors to true,
+	// since we are using sync producer.
+	saramaCfg.Producer.Return.Successes = true
+	saramaCfg.Producer.Return.Errors = true
+
+	return saramaCfg, nil
 }

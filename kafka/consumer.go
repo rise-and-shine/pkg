@@ -12,13 +12,14 @@ import (
 )
 
 type Consumer struct {
-	topic         string
-	cfg           ConsumerConfig
-	saramaCfg     *sarama.Config
-	logger        logger.Logger
-	consumerGroup sarama.ConsumerGroup
-	handleFn      HandleFunc
-	alertProvider alert.Provider
+	cfg            ConsumerConfig
+	serviceName    string
+	serviceVersion string
+	saramaCfg      *sarama.Config
+	logger         logger.Logger
+	consumerGroup  sarama.ConsumerGroup
+	handleFn       HandleFunc
+	alertProvider  alert.Provider
 }
 
 // HandleFunc is a delivery handler that should be injected into the consumer.
@@ -27,29 +28,32 @@ type HandleFunc func(context.Context, *sarama.ConsumerMessage) error
 // NewConsumer creates a new kafka consumer.
 func NewConsumer(
 	cfg ConsumerConfig,
+	serviceName string,
+	serviceVersion string,
 	alertProvider alert.Provider,
 	logger logger.Logger,
 	handleFn HandleFunc,
 ) (*Consumer, error) {
-	saramaCfg, err := cfg.getSaramaConfig()
+	saramaCfg, err := cfg.getSaramaConfig(serviceName)
 	if err != nil {
 		return nil, errx.Wrap(err)
 	}
 
 	// create a new consumer group
-	consumerGroup, err := sarama.NewConsumerGroup(strings.Split(cfg.Brokers, ","), cfg.ServiceName, saramaCfg)
+	consumerGroup, err := sarama.NewConsumerGroup(strings.Split(cfg.Brokers, ","), cfg.GroupID, saramaCfg)
 	if err != nil {
 		return nil, errx.Wrap(err)
 	}
 
 	return &Consumer{
-		topic:         cfg.Topic,
-		cfg:           cfg,
-		saramaCfg:     saramaCfg,
-		logger:        logger.Named("consumer"),
-		consumerGroup: consumerGroup,
-		handleFn:      handleFn,
-		alertProvider: alertProvider,
+		cfg:            cfg,
+		serviceName:    serviceName,
+		serviceVersion: serviceVersion,
+		saramaCfg:      saramaCfg,
+		logger:         logger.Named("consumer"),
+		consumerGroup:  consumerGroup,
+		handleFn:       handleFn,
+		alertProvider:  alertProvider,
 	}, nil
 }
 
@@ -57,7 +61,7 @@ func NewConsumer(
 func (c *Consumer) Start() error {
 	// the main consume loop, parent of the ConsumerClaim() partition consumer loop
 	for {
-		err := c.consumerGroup.Consume(context.Background(), []string{c.topic}, c)
+		err := c.consumerGroup.Consume(context.Background(), []string{c.cfg.Topic}, c)
 		if err != nil {
 			if errors.Is(err, sarama.ErrClosedConsumerGroup) {
 				return nil
@@ -124,8 +128,8 @@ func (c *Consumer) buildHandlerChain() HandleFunc {
 	handler := c.handleFn
 
 	// build the chain in reverse order (last wrapper first)
-	handler = c.handlerWithRetry(handler)         // 8. retry
-	handler = c.handlerWithErrorHandling(handler) // 7. error handling (innermost)
+	handler = c.handlerWithRetry(handler)         // 8. retry (innermost)
+	handler = c.handlerWithErrorHandling(handler) // 7. error handling
 	handler = c.handlerWithLogging(handler)       // 6. logging
 	handler = c.handlerWithAlerting(handler)      // 5. alerting
 	handler = c.handlerWithMetaInjection(handler) // 4. meta injection
