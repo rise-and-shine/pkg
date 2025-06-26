@@ -73,9 +73,9 @@ func (p *Producer) SendMessage(ctx context.Context, m *Message) error {
 }
 
 // SendMessages sends multiple messages to the configured Kafka topic.
-func (p *Producer) SendMessages(ctx context.Context, messages []*Message) error {
-	kafkaMessages := lo.Map(messages, func(m *Message, _ int) *sarama.ProducerMessage {
-		return p.buildKafkaProducerMsg(ctx, m)
+func (p *Producer) SendMessages(ctx context.Context, messages []Message) error {
+	kafkaMessages := lo.Map(messages, func(m Message, _ int) *sarama.ProducerMessage {
+		return p.buildKafkaProducerMsg(ctx, &m)
 	})
 
 	err := p.syncProducer.SendMessages(kafkaMessages)
