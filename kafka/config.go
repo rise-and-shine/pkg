@@ -16,7 +16,6 @@ const (
 // ConsumerConfig holds configuration for a Kafka consumer.
 type ConsumerConfig struct {
 	Brokers      string `yaml:"brokers"       validate:"required"`
-	Topic        string `yaml:"topic"         validate:"required"`
 	SaslUsername string `yaml:"sasl_username"`
 	SaslPassword string `yaml:"sasl_password"`
 
@@ -65,7 +64,6 @@ func (c *ConsumerConfig) getSaramaConfig(serviceName string) (*sarama.Config, er
 // ProducerConfig holds configuration for a Kafka producer.
 type ProducerConfig struct {
 	Brokers      string `yaml:"brokers"       validate:"required"`
-	Topic        string `yaml:"topic"         validate:"required"`
 	SaslUsername string `yaml:"sasl_username"`
 	SaslPassword string `yaml:"sasl_password"`
 

@@ -13,6 +13,7 @@ import (
 
 type Consumer struct {
 	cfg            ConsumerConfig
+	topic          string
 	serviceName    string
 	serviceVersion string
 	saramaCfg      *sarama.Config
@@ -28,6 +29,7 @@ type HandleFunc func(context.Context, *sarama.ConsumerMessage) error
 // NewConsumer creates a new kafka consumer.
 func NewConsumer(
 	cfg ConsumerConfig,
+	topic string,
 	serviceName string,
 	serviceVersion string,
 	alertProvider alert.Provider,
@@ -47,6 +49,7 @@ func NewConsumer(
 
 	return &Consumer{
 		cfg:            cfg,
+		topic:          topic,
 		serviceName:    serviceName,
 		serviceVersion: serviceVersion,
 		saramaCfg:      saramaCfg,
@@ -61,7 +64,7 @@ func NewConsumer(
 func (c *Consumer) Start() error {
 	// the main consume loop, parent of the ConsumerClaim() partition consumer loop
 	for {
-		err := c.consumerGroup.Consume(context.Background(), []string{c.cfg.Topic}, c)
+		err := c.consumerGroup.Consume(context.Background(), []string{c.topic}, c)
 		if err != nil {
 			if errors.Is(err, sarama.ErrClosedConsumerGroup) {
 				return nil

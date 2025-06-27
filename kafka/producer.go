@@ -21,6 +21,7 @@ type Message struct {
 // Producer represents a Kafka producer.
 type Producer struct {
 	cfg          ProducerConfig
+	topic        string
 	serviceName  string
 	saramaCfg    *sarama.Config
 	syncProducer sarama.SyncProducer
@@ -29,6 +30,7 @@ type Producer struct {
 // NewProducer creates a new Kafka producer.
 func NewProducer(
 	cfg ProducerConfig,
+	topic string,
 	serviceName string,
 ) (*Producer, error) {
 	saramaCfg, err := cfg.getSaramaConfig(serviceName)
@@ -47,6 +49,7 @@ func NewProducer(
 
 	return &Producer{
 		cfg:          cfg,
+		topic:        topic,
 		serviceName:  serviceName,
 		saramaCfg:    saramaCfg,
 		syncProducer: wrappedProducer,
@@ -81,7 +84,7 @@ func (p *Producer) SendMessages(ctx context.Context, messages []Message) error {
 	err := p.syncProducer.SendMessages(kafkaMessages)
 	if err != nil {
 		return errx.Wrap(err, errx.WithDetails(errx.D{
-			"topic": p.cfg.Topic,
+			"topic": p.topic,
 		}))
 	}
 
@@ -90,7 +93,7 @@ func (p *Producer) SendMessages(ctx context.Context, messages []Message) error {
 
 func (p *Producer) buildKafkaProducerMsg(ctx context.Context, m *Message) *sarama.ProducerMessage {
 	msg := &sarama.ProducerMessage{
-		Topic: p.cfg.Topic,
+		Topic: p.topic,
 		Key:   sarama.ByteEncoder(m.Key),
 		Value: sarama.ByteEncoder(m.Value),
 	}
