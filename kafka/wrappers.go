@@ -68,6 +68,8 @@ func (c *Consumer) handlerWithTracing(next HandleFunc) HandleFunc {
 			span.SetStatus(codes.Error, err.Error())
 		}
 
+		// end the span
+		span.End()
 		return err
 	}
 }
