@@ -154,7 +154,7 @@ func (c *Consumer) handlerWithLogging(next HandleFunc) HandleFunc {
 		})
 
 		logger = logger.With(
-			"trace_id", msg.Topic,
+			"topic", msg.Topic,
 			"partition", msg.Partition,
 			"offset", msg.Offset,
 			"key", string(msg.Key),
