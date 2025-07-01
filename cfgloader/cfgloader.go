@@ -76,9 +76,9 @@ func ensureNotPointer(config any) {
 
 func defineEnvironment() string {
 	env := os.Getenv("ENVIRONMENT")
-	if !slices.Contains([]string{EnvProduction, EnvDev, EnvLocal, EnvTest}, env) {
+	if !slices.Contains([]string{EnvProduction, EnvStaging, EnvDev, EnvLocal, EnvTest}, env) {
 		slog.Error(
-			"[cfgloader]: ENVIRONMENT env variable is not set or invalid. Choices are: production, dev, local, test",
+			"[cfgloader]: ENVIRONMENT env variable is not set or invalid. Choices are: production, staging, dev, local, test",
 		)
 		os.Exit(1)
 	}
