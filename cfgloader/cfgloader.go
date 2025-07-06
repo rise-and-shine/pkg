@@ -64,6 +64,8 @@ func MustLoad[T any]() T {
 
 	validateConfig(&config, env)
 
+	printConfig(&config)
+
 	return config
 }
 
