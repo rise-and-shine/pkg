@@ -127,7 +127,7 @@ func (c *Consumer) handlerWithAlerting(next HandleFunc) HandleFunc {
 		for k, v := range metaCtx {
 			details[string(k)] = v
 		}
-		details["error_type"] = e.Trace()
+		details["error_trace"] = e.Trace()
 
 		sendErr := c.alertProvider.SendError(ctx, e.Code(), err.Error(), operation, details)
 		if sendErr != nil {
