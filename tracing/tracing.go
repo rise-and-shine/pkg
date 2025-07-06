@@ -72,7 +72,12 @@ func InitGlobalTracer(cfg Config, serviceName, serviceVersion string) (func() er
 	)
 
 	// set global propagator and tracer provider
-	otel.SetTextMapPropagator(propagation.TraceContext{})
+	otel.SetTextMapPropagator(
+		propagation.NewCompositeTextMapPropagator(
+			propagation.TraceContext{},
+			propagation.Baggage{},
+		),
+	)
 	otel.SetTracerProvider(tp)
 
 	return func() error { return exporter.Shutdown(context.Background()) }, nil
