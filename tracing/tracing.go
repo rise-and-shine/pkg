@@ -81,12 +81,6 @@ func InitGlobalTracer(cfg Config, serviceName, serviceVersion string) (func() er
 	)
 	otel.SetTracerProvider(tp)
 
-	// Force flush to ensure all dependencies are ready
-	err = tp.ForceFlush(context.Background())
-	if err != nil {
-		return nil, errx.Wrap(err)
-	}
-
 	return func() error {
 		ctx := context.Background()
 		_ = tp.ForceFlush(ctx)
