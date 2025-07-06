@@ -26,7 +26,7 @@ func maskStruct(cfg any) any {
 	return maskValue(val).Interface()
 }
 
-func maskValue(val reflect.Value) reflect.Value { //nolint:gocognit // not complex enough to split
+func maskValue(val reflect.Value) reflect.Value {
 	if !val.IsValid() {
 		return val
 	}
@@ -59,37 +59,11 @@ func maskValue(val reflect.Value) reflect.Value { //nolint:gocognit // not compl
 		}
 		return masked
 
-	case reflect.Slice:
-		masked := reflect.MakeSlice(val.Type(), val.Len(), val.Cap())
-		length := val.Len()
-		for i := range length {
-			masked.Index(i).Set(maskValue(val.Index(i)))
-		}
-		return masked
-
-	case reflect.Array:
-		masked := reflect.New(val.Type()).Elem()
-		length := val.Len()
-		for i := range length {
-			masked.Index(i).Set(maskValue(val.Index(i)))
-		}
-		return masked
-
-	case reflect.Map:
-		masked := reflect.MakeMapWithSize(val.Type(), val.Len())
-		for _, key := range val.MapKeys() {
-			masked.SetMapIndex(key, maskValue(val.MapIndex(key)))
-		}
-		return masked
-
 	case reflect.Interface:
 		if val.IsNil() {
 			return val
 		}
 		return maskValue(val.Elem())
-
-	case reflect.String:
-		return reflect.ValueOf(maskString(val.String()))
 
 	default:
 		return val
@@ -101,7 +75,7 @@ func maskAny(val reflect.Value) reflect.Value {
 		return val
 	}
 
-	switch val.Kind() { //nolint: exhaustive // only handled kinds relevant to masking
+	switch val.Kind() { //nolint:exhaustive // only handled kinds relevant to masking
 	case reflect.String:
 		return reflect.ValueOf(maskString(val.String()))
 
