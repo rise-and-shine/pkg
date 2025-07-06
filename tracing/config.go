@@ -3,7 +3,7 @@ package tracing
 import "time"
 
 const (
-	reconnectionPeriod = 30 * time.Second
+	reconnectionPeriod = 3 * time.Second
 	clientTimeout      = 30 * time.Second
 	maxQueueSize       = 10000
 	batchTimeout       = 30 * time.Second
