@@ -1,6 +1,7 @@
 package cfgloader
 
 import (
+	"fmt"
 	"log/slog"
 	"reflect"
 	"strings"
@@ -15,7 +16,7 @@ func printConfig(config any) {
 	if err != nil {
 		slog.Error("failed to marshal config", "error", err.Error())
 	}
-	slog.Info(string(out))
+	slog.Info(fmt.Sprintf("Loaded config:\n%s", string(out)))
 }
 
 func maskStruct(cfg any) any {
