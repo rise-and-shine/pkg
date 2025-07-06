@@ -17,7 +17,7 @@ const (
 type ConsumerConfig struct {
 	Brokers      string `yaml:"brokers"       validate:"required"`
 	SaslUsername string `yaml:"sasl_username"`
-	SaslPassword string `yaml:"sasl_password"`
+	SaslPassword string `yaml:"sasl_password"                     mask:"true"`
 
 	// If not set default to the service name.
 	GroupID        string        `yaml:"group_id"`
@@ -65,7 +65,7 @@ func (c *ConsumerConfig) getSaramaConfig(serviceName string) (*sarama.Config, er
 type ProducerConfig struct {
 	Brokers      string `yaml:"brokers"       validate:"required"`
 	SaslUsername string `yaml:"sasl_username"`
-	SaslPassword string `yaml:"sasl_password"`
+	SaslPassword string `yaml:"sasl_password"                     mask:"true"`
 
 	KafkaVersion string `yaml:"kafka_version" default:"3.6.0"`
 }

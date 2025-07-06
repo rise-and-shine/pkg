@@ -17,7 +17,7 @@ type Config struct {
 	// User specifies the database user name.
 	User string `yaml:"user"     validate:"required"`
 	// Password specifies the database user password.
-	Password string `yaml:"password" validate:"required"`
+	Password string `yaml:"password" validate:"required" mask:"true"`
 	// Database specifies the database name to connect to.
 	Database string `yaml:"database" validate:"required"`
 
