@@ -3,8 +3,11 @@ package tracing
 import "time"
 
 const (
-	defaultReconnectionPeriod = 30 * time.Second
-	defaultClientTimeout      = 30 * time.Second
+	reconnectionPeriod = 30 * time.Second
+	clientTimeout      = 30 * time.Second
+	maxQueueSize       = 10000
+	batchTimeout       = 30 * time.Second
+	maxExportBatchSize = 1024
 )
 
 // Config holds the configuration for the tracing system.
