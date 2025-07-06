@@ -51,7 +51,7 @@ func (c *Consumer) handlerWithTracing(next HandleFunc) HandleFunc {
 		ctx = otel.GetTextMapPropagator().Extract(ctx, otelsarama.NewConsumerMessageCarrier(msg))
 
 		// start a new span
-		ctx, span := otel.Tracer("").Start(ctx, fmt.Sprintf("CONSUME: %s", msg.Topic),
+		ctx, span := otel.Tracer("").Start(ctx, fmt.Sprintf("CONSUME %s", msg.Topic),
 			trace.WithAttributes(
 				semconv.MessagingSystem("kafka"),
 				semconv.MessagingKafkaConsumerGroup(c.cfg.GroupID),
