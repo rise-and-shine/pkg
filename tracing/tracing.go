@@ -6,6 +6,7 @@ package tracing
 import (
 	"context"
 	"net"
+	"time"
 
 	"github.com/code19m/errx"
 	"github.com/spf13/cast"
@@ -79,6 +80,14 @@ func InitGlobalTracer(cfg Config, serviceName, serviceVersion string) (func() er
 		),
 	)
 	otel.SetTracerProvider(tp)
+
+	// Force flush to ensure exporter is connected
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	err = tp.ForceFlush(ctx)
+	if err != nil {
+		return nil, errx.Wrap(err)
+	}
 
 	return func() error { return exporter.Shutdown(context.Background()) }, nil
 }
