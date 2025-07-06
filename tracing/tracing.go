@@ -39,6 +39,8 @@ func InitGlobalTracer(cfg Config, serviceName, serviceVersion string) (func() er
 	grpcTraceClient := otlptracegrpc.NewClient(
 		otlptracegrpc.WithInsecure(),
 		otlptracegrpc.WithEndpoint(exporterAddr),
+		otlptracegrpc.WithReconnectionPeriod(defaultReconnectionPeriod),
+		otlptracegrpc.WithTimeout(defaultClientTimeout),
 	)
 
 	exporter, err := otlptrace.New(

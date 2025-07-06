@@ -1,5 +1,12 @@
 package tracing
 
+import "time"
+
+const (
+	defaultReconnectionPeriod = 10 * time.Second
+	defaultClientTimeout      = 30 * time.Second
+)
+
 // Config holds the configuration for the tracing system.
 // It is typically loaded from a configuration file (e.g., YAML).
 type Config struct {
