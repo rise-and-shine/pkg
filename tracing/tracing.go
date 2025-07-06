@@ -40,7 +40,6 @@ func InitGlobalTracer(cfg Config, serviceName, serviceVersion string) (func() er
 		otlptracegrpc.WithInsecure(),
 		otlptracegrpc.WithEndpoint(exporterAddr),
 		otlptracegrpc.WithReconnectionPeriod(reconnectionPeriod),
-		otlptracegrpc.WithTimeout(clientTimeout),
 	)
 
 	exporter, err := otlptrace.New(
@@ -51,11 +50,7 @@ func InitGlobalTracer(cfg Config, serviceName, serviceVersion string) (func() er
 		return nil, errx.Wrap(err)
 	}
 
-	processor := trace.NewBatchSpanProcessor(exporter,
-		trace.WithMaxQueueSize(maxQueueSize),
-		trace.WithBatchTimeout(batchTimeout),
-		trace.WithMaxExportBatchSize(maxExportBatchSize),
-	)
+	processor := trace.NewBatchSpanProcessor(exporter)
 
 	attrs := make([]attribute.KeyValue, 0, len(cfg.Tags))
 	for k, v := range cfg.Tags {
