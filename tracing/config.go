@@ -3,7 +3,7 @@ package tracing
 import "time"
 
 const (
-	defaultReconnectionPeriod = 10 * time.Second
+	defaultReconnectionPeriod = 30 * time.Second
 	defaultClientTimeout      = 30 * time.Second
 )
 
