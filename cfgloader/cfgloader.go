@@ -3,7 +3,6 @@ package cfgloader
 
 import (
 	"fmt"
-	"log"
 	"log/slog"
 	"os"
 	"reflect"
@@ -165,9 +164,9 @@ func printConfig(config any) {
 
 	out, err := yaml.Marshal(masked)
 	if err != nil {
-		log.Fatalf("failed to marshal config: %v", err)
+		slog.Error("failed to marshal config", "error", err.Error())
 	}
-	fmt.Println(string(out))
+	slog.Info(string(out))
 }
 
 func maskStruct(cfg any) any {
@@ -178,12 +177,12 @@ func maskStruct(cfg any) any {
 	return maskValue(val).Interface()
 }
 
-func maskValue(val reflect.Value) reflect.Value {
+func maskValue(val reflect.Value) reflect.Value { //nolint:gocognit // not complex enough to split
 	if !val.IsValid() {
 		return val
 	}
 
-	switch val.Kind() {
+	switch val.Kind() { //nolint:exhaustive // only handled kinds relevant to masking
 	case reflect.Ptr:
 		if val.IsNil() {
 			return val
@@ -194,7 +193,8 @@ func maskValue(val reflect.Value) reflect.Value {
 
 	case reflect.Struct:
 		masked := reflect.New(val.Type()).Elem()
-		for i := 0; i < val.NumField(); i++ {
+		numFields := val.NumField()
+		for i := 0; i < numFields; i++ { //nolint:intrange // simple loop; Go < 1.22 compatibility
 			field := val.Type().Field(i)
 			origVal := val.Field(i)
 
@@ -212,14 +212,16 @@ func maskValue(val reflect.Value) reflect.Value {
 
 	case reflect.Slice:
 		masked := reflect.MakeSlice(val.Type(), val.Len(), val.Cap())
-		for i := 0; i < val.Len(); i++ {
+		length := val.Len()
+		for i := 0; i < length; i++ { //nolint:intrange // simple loop; Go < 1.22 compatibility
 			masked.Index(i).Set(maskValue(val.Index(i)))
 		}
 		return masked
 
 	case reflect.Array:
 		masked := reflect.New(val.Type()).Elem()
-		for i := 0; i < val.Len(); i++ {
+		length := val.Len()
+		for i := 0; i < length; i++ { //nolint:intrange // simple loop; Go < 1.22 compatibility
 			masked.Index(i).Set(maskValue(val.Index(i)))
 		}
 		return masked
@@ -250,7 +252,7 @@ func maskAny(val reflect.Value) reflect.Value {
 		return val
 	}
 
-	switch val.Kind() {
+	switch val.Kind() { //nolint: exhaustive // only handled kinds relevant to masking
 	case reflect.String:
 		return reflect.ValueOf(maskString(val.String()))
 
