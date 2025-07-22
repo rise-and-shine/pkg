@@ -1,12 +1,11 @@
 package pagination
 
 import (
-	"fmt"
 	"math"
 )
 
 type Params struct {
-	Limit int `query:"limit" json:"limit,omitempty"`
+	Limit  int `query:"limit" json:"limit,omitempty"`
 	Offset int `query:"offset" json:"offset,omitempty"`
 
 	// Page specifies the page number (1-based, used with Size)
@@ -137,24 +136,4 @@ func (p *Params) NewResponse(total int64) Response {
 		HasNext: page < totalPages,
 		HasPrev: page > 1,
 	}
-}
-
-// String returns a string representation of the pagination parameters.
-func (p *Params) String() string {
-	// If Normalize() was called, use the stored preference
-	// Otherwise, determine from current field values
-	usesPageSizeFormat := p.usesPageSize
-	if !p.usesPageSize && p.hasPageSize() && p.Limit == 0 && p.Offset == 0 {
-		usesPageSizeFormat = true
-	}
-
-	if usesPageSizeFormat {
-		return fmt.Sprintf("page=%d size=%d", p.Page, p.Size)
-	}
-	return fmt.Sprintf("limit=%d offset=%d", p.Limit, p.Offset)
-}
-
-// String returns a string representation of the pagination response.
-func (r *Response) String() string {
-	return fmt.Sprintf("page %d of %d (total: %d, size: %d)", r.Page, r.Pages, r.Total, r.Size)
 }
