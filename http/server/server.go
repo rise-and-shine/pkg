@@ -19,13 +19,14 @@ type HTTPServer struct {
 // for consistent error responses. Returns a pointer to the initialized HTTPServer.
 func NewHTTPServer(cfg Config, middlewares []Middleware) *HTTPServer {
 	router := fiber.New(fiber.Config{
-		ReadTimeout:           cfg.ReadTimeout,
-		WriteTimeout:          cfg.WriteTimeout,
-		IdleTimeout:           cfg.IdleTimeout,
-		ErrorHandler:          customErrorHandler(),
-		DisableStartupMessage: true,
-		Immutable:             true,
-		BodyLimit:             cfg.BodyLimit,
+		ReadTimeout:              cfg.ReadTimeout,
+		WriteTimeout:             cfg.WriteTimeout,
+		IdleTimeout:              cfg.IdleTimeout,
+		ErrorHandler:             customErrorHandler(),
+		DisableStartupMessage:    true,
+		Immutable:                true,
+		BodyLimit:                cfg.BodyLimit,
+		EnableSplittingOnParsers: true,
 	})
 
 	applyMiddlewares(router, middlewares)
