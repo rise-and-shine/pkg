@@ -53,10 +53,12 @@ func NewAlertingMW(logger logger.Logger, provider alert.Provider) server.Middlew
 			details["request_user_type"] = cast.ToString(c.Locals(meta.RequestUserType))
 			details["request_user_role"] = cast.ToString(c.Locals(meta.RequestUserRole))
 
-			sendErr := provider.SendError(ctx, e.Code(), e.Error(), operation, details)
-			if sendErr != nil {
-				log.With("alert_send_error", sendErr.Error()).Warn("failed to send alert")
-			}
+			go func() {
+				sendErr := provider.SendError(ctx, e.Code(), e.Error(), operation, details)
+				if sendErr != nil {
+					log.With("alert_send_error", sendErr.Error()).Warn("failed to send alert")
+				}
+			}()
 
 			return err
 		},
