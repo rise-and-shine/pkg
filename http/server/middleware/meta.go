@@ -3,6 +3,8 @@ package middleware
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -57,8 +59,9 @@ func getTraceID(ctx context.Context) string {
 	span := trace.SpanFromContext(ctx)
 	traceID := span.SpanContext().TraceID().String()
 
-	if traceID == "" {
-		traceID = uuid.NewString()
+	fmt.Println("span.IsRecording:", span.IsRecording())
+	if traceID == "" || traceID == "00000000000000000000000000000000" {
+		traceID = strings.ReplaceAll(uuid.NewString(), "-", "")
 	}
 
 	return traceID
