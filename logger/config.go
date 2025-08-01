@@ -39,17 +39,12 @@ type Config struct {
 }
 
 // getZapConfig converts the logger Config to a zap.Config.
-func (c Config) getZapConfig(cfg Config) (*zap.Config, error) {
+func (c Config) getZapConfig() (*zap.Config, error) {
 	zapLevel := zap.NewAtomicLevel()
 
 	err := zapLevel.UnmarshalText([]byte(c.Level))
 	if err != nil {
 		return nil, errx.Wrap(err)
-	}
-
-	encodeLevel := zapcore.CapitalLevelEncoder
-	if c.Encoding != EncodingConsole {
-		encodeLevel = zapcore.CapitalColorLevelEncoder
 	}
 
 	encoderConfig := zapcore.EncoderConfig{
@@ -58,7 +53,7 @@ func (c Config) getZapConfig(cfg Config) (*zap.Config, error) {
 		NameKey:        nameKey,
 		CallerKey:      callerKey,
 		TimeKey:        timeKey,
-		EncodeLevel:    encodeLevel,
+		EncodeLevel:    zapcore.CapitalLevelEncoder,
 		EncodeTime:     zapcore.RFC3339TimeEncoder,
 		EncodeDuration: zapcore.StringDurationEncoder,
 		EncodeCaller:   zapcore.ShortCallerEncoder,

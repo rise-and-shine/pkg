@@ -63,7 +63,7 @@ type logger struct {
 
 // New creates a new Logger instance with the provided configuration.
 func New(cfg Config) (Logger, error) {
-	zapConfig, err := cfg.getZapConfig(cfg)
+	zapConfig, err := cfg.getZapConfig()
 	if err != nil {
 		return nil, errx.Wrap(err)
 	}
