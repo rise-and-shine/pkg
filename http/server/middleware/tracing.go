@@ -28,7 +28,7 @@ func NewTracingMW() server.Middleware {
 				trace.WithSpanKind(trace.SpanKindServer),
 			}
 
-			ctx, span := otel.Tracer("http-server").Start(c.Context(), defaultSpanName, opts...)
+			ctx, span := otel.Tracer("http-server").Start(c.UserContext(), defaultSpanName, opts...)
 			defer span.End()
 
 			c.SetUserContext(ctx)

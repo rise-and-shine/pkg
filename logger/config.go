@@ -13,6 +13,9 @@ const (
 	nameKey    = "logger"
 	callerKey  = "file"
 	timeKey    = "time"
+
+	EncodingConsole = "console"
+	EncodingJSON    = "json"
 )
 
 // Config defines configuration options for the logger.
@@ -36,12 +39,17 @@ type Config struct {
 }
 
 // getZapConfig converts the logger Config to a zap.Config.
-func (c Config) getZapConfig() (*zap.Config, error) {
+func (c Config) getZapConfig(cfg Config) (*zap.Config, error) {
 	zapLevel := zap.NewAtomicLevel()
 
 	err := zapLevel.UnmarshalText([]byte(c.Level))
 	if err != nil {
 		return nil, errx.Wrap(err)
+	}
+
+	encodeLevel := zapcore.CapitalLevelEncoder
+	if c.Encoding != EncodingConsole {
+		encodeLevel = zapcore.CapitalColorLevelEncoder
 	}
 
 	encoderConfig := zapcore.EncoderConfig{
@@ -50,7 +58,7 @@ func (c Config) getZapConfig() (*zap.Config, error) {
 		NameKey:        nameKey,
 		CallerKey:      callerKey,
 		TimeKey:        timeKey,
-		EncodeLevel:    zapcore.CapitalLevelEncoder,
+		EncodeLevel:    encodeLevel,
 		EncodeTime:     zapcore.RFC3339TimeEncoder,
 		EncodeDuration: zapcore.StringDurationEncoder,
 		EncodeCaller:   zapcore.ShortCallerEncoder,
