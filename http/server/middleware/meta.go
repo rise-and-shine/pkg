@@ -3,6 +3,7 @@ package middleware
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -55,11 +56,11 @@ func NewMetaInjectMW(serviceName, serviceVersion string) server.Middleware {
 // If no trace ID is available, it generates a new UUID to use as a trace ID.
 func getTraceID(ctx context.Context) string {
 	span := trace.SpanFromContext(ctx)
-	traceID := span.SpanContext().TraceID().String()
+	traceID := span.SpanContext().TraceID()
 
-	if traceID == "" {
-		traceID = uuid.NewString()
+	if traceID.IsValid() {
+		return traceID.String()
 	}
 
-	return traceID
+	return fmt.Sprintf("man-%s", uuid.New().String())
 }
