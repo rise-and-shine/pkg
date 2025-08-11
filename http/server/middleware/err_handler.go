@@ -82,6 +82,8 @@ func mapErrorTypeToHTTPStatusCode(t errx.Type) int {
 		return fiber.StatusBadRequest
 	case errx.T_Conflict:
 		return fiber.StatusConflict
+	case errx.T_Throttling:
+		return fiber.StatusTooManyRequests
 	case errx.T_Internal:
 		return fiber.StatusInternalServerError
 	default:
@@ -105,6 +107,8 @@ func mapAnyErrorToErrorX(err error) errx.ErrorX {
 			t = errx.T_NotFound
 		case fiberErr.Code == fiber.StatusConflict:
 			t = errx.T_Conflict
+		case fiberErr.Code == fiber.StatusTooManyRequests:
+			t = errx.T_Throttling
 		case fiberErr.Code >= 400 && fiberErr.Code < 500:
 			t = errx.T_Validation
 		default:
