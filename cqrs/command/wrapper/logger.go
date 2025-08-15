@@ -44,7 +44,15 @@ func (cmd *LoggerCommandWrapper[I, R]) Execute(ctx context.Context, input I) (R,
 		With("input", input)
 
 	if err != nil {
-		logger.Error(err)
+		e := errx.AsErrorX(err)
+		logger.With("error", map[string]any{
+			"code":    e.Code(),
+			"message": e.Error(),
+			"type":    e.Type().String(),
+			"trace":   e.Trace(),
+			"fields":  e.Fields(),
+			"details": e.Details(),
+		}).Error()
 	} else {
 		logger.Info()
 	}
