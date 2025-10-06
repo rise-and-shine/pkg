@@ -435,6 +435,103 @@ make lint
 3. Run linting before submitting: `make lint`
 4. Ensure all tests pass: `go test ./...`
 
+
+# Minio Storage Service
+
+This package provides a high-level interface for interacting with MinIO object storage.
+
+## Features
+
+- File upload/download with automatic file type detection
+- Image processing with automatic resizing (original, medium, small)
+- Strong validation (file size, MIME type, file name pattern)
+- Context-aware operations with timeouts
+
+## Installation
+
+```bash
+go get github.com/rise-and-shine/pkg/miniofs
+```
+
+## Configuration
+
+```go
+cfg := client.Config{
+    Endpoint:        "localhost:9000",
+    AccessKeyID:     "minioadmin",
+    SecretAccessKey: "minioadmin",
+    BucketName:     "images",
+    MaxFileSize:     10 * 1024 * 1024, // 10MB
+    Timeout:        5 * time.Second,
+}
+```
+
+## Usage Examples
+
+### Initialize Service
+
+```go
+service, err := minio.NewService(cfg)
+if err != nil {
+    log.Fatal(err)
+}
+```
+
+### Upload Image with Auto-resizing
+
+```go
+url, err := service.UploadImage(ctx, file, "example.jpg")
+if err != nil {
+    log.Fatal(err)
+}
+```
+
+### Download File
+
+```go
+reader, err := service.Download(ctx, "example.jpg")
+if err != nil {
+    log.Fatal(err)
+}
+defer reader.Close()
+
+content, err := io.ReadAll(reader)
+if err != nil {
+    log.Fatal(err)
+}
+```
+
+### Check File Existence
+
+```go
+exists, err := service.Exists(ctx, "example.jpg")
+if err != nil {
+    log.Fatal(err)
+}
+if exists {
+    fmt.Println("File exists!")
+}
+```
+
+### Delete File
+
+```go
+err := service.Delete(ctx, "example.jpg")
+if err != nil {
+    log.Fatal(err)
+}
+```
+
+## Health Check
+
+The service provides a health check endpoint that verifies:
+- MinIO server connectivity
+- Bucket existence and accessibility
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
 ## 📄 License
 
 This package collection is designed for internal use and follows the project's coding standards and architectural patterns.
