@@ -22,6 +22,14 @@ func IsConflict(err error) bool {
 	return false
 }
 
+func ConstraintName(err error) string {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.ConstraintName
+	}
+	return ""
+}
+
 // IsNotFound checks if the error indicates that no rows were found.
 func IsNotFound(err error) bool {
 	return errors.Is(err, sql.ErrNoRows)

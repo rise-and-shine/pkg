@@ -19,21 +19,23 @@ const (
 // PgRepo provides CRUD + Bulk operations for a PostgreSQL database using bun ORM.
 type PgRepo[E any, F any] struct {
 	*PgReadOnlyRepo[E, F]
-	conflictCode string
+
+	// conflictCodesMap is a map of PostgreSQL constraint names to error codes. E.g. map["users_email_key"] = "EMAIL_ALREADY_EXISTS"
+	conflictCodesMap map[string]string
 }
 
 func NewPgRepo[E any, F any](
 	idb bun.IDB,
 	entityName string,
 	notFoundCode string,
-	conflictCode string,
+	conflictCodesMap map[string]string,
 	filterFunc func(q *bun.SelectQuery, filters F) *bun.SelectQuery,
 ) *PgRepo[E, F] {
 	roRepo := NewPgReadOnlyRepo[E](idb, entityName, notFoundCode, filterFunc)
 
 	return &PgRepo[E, F]{
-		PgReadOnlyRepo: roRepo,
-		conflictCode:   conflictCode,
+		PgReadOnlyRepo:   roRepo,
+		conflictCodesMap: conflictCodesMap,
 	}
 }
 
@@ -41,10 +43,10 @@ func (r *PgRepo[E, F]) Create(ctx context.Context, entity *E) (*E, error) {
 	q := r.idb.NewInsert().Model(entity).Returning("*")
 	_, err := q.Exec(ctx)
 	if err != nil {
-		if pg.IsConflict(err) {
+		if code, exists := r.conflictCodesMap[pg.ConstraintName(err)]; exists {
 			return nil, errx.New(
 				fmt.Sprintf("conflict while creating %s", r.entityName),
-				errx.WithCode(r.conflictCode),
+				errx.WithCode(code),
 				errx.WithDetails(pg.GetPgErrorDetails(err, q)),
 			)
 		}
@@ -58,10 +60,10 @@ func (r *PgRepo[E, F]) Update(ctx context.Context, entity *E) (*E, error) {
 	q := r.idb.NewUpdate().Model(entity).WherePK().Returning("*")
 	result, err := q.Exec(ctx)
 	if err != nil {
-		if pg.IsConflict(err) {
+		if code, exists := r.conflictCodesMap[pg.ConstraintName(err)]; exists {
 			return nil, errx.New(
 				fmt.Sprintf("conflict while updating %s", r.entityName),
-				errx.WithCode(r.conflictCode),
+				errx.WithCode(code),
 				errx.WithDetails(pg.GetPgErrorDetails(err, q)),
 			)
 		}
@@ -114,10 +116,10 @@ func (r *PgRepo[E, F]) BulkCreate(ctx context.Context, entities []E) error {
 		if len(entities) > largeBulkSize {
 			q = nil // Set q to nil to avoid huge log size in large inserts
 		}
-		if pg.IsConflict(err) {
+		if code, exists := r.conflictCodesMap[pg.ConstraintName(err)]; exists {
 			return errx.New(
 				fmt.Sprintf("conflict while bulk creating %s", r.entityName),
-				errx.WithCode(r.conflictCode),
+				errx.WithCode(code),
 				errx.WithDetails(pg.GetPgErrorDetails(err, q)),
 			)
 		}
@@ -134,10 +136,10 @@ func (r *PgRepo[E, F]) BulkUpdate(ctx context.Context, entities []E) error {
 		if len(entities) > largeBulkSize {
 			q = nil // Set q to nil to avoid huge log size in large updates
 		}
-		if pg.IsConflict(err) {
+		if code, exists := r.conflictCodesMap[pg.ConstraintName(err)]; exists {
 			return errx.New(
 				fmt.Sprintf("conflict while bulk updating %s", r.entityName),
-				errx.WithCode(r.conflictCode),
+				errx.WithCode(code),
 				errx.WithDetails(pg.GetPgErrorDetails(err, q)),
 			)
 		}
