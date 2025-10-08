@@ -87,6 +87,25 @@ func (r *PgReadOnlyRepo[E, F]) Count(ctx context.Context, filters F) (int, error
 	return count, nil
 }
 
+func (r *PgReadOnlyRepo[E, F]) ListWithCount(ctx context.Context, filters F) ([]E, int, error) {
+	var entities = make([]E, 0)
+	q := r.idb.NewSelect().Model(&entities)
+	q = r.filterFunc(q, filters)
+
+	err := q.Scan(ctx)
+	if err != nil {
+		return nil, 0, errx.Wrap(err, errx.WithDetails(pg.GetPgErrorDetails(err, q)))
+	}
+
+	q = q.Offset(0).Limit(0)
+	count, err := q.Count(ctx)
+	if err != nil {
+		return nil, 0, errx.Wrap(err, errx.WithDetails(pg.GetPgErrorDetails(err, q)))
+	}
+
+	return entities, count, nil
+}
+
 func (r *PgReadOnlyRepo[E, F]) FirstOrNil(ctx context.Context, filters F) (*E, error) {
 	var entities = make([]E, 0)
 	q := r.idb.NewSelect().Model(&entities).Limit(1)

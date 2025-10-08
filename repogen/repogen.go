@@ -20,6 +20,9 @@ type ReadOnlyRepo[E any, F any] interface {
 	List(ctx context.Context, filters F) ([]E, error)
 	// Count returns the number of entities matching the filters.
 	Count(ctx context.Context, filters F) (int, error)
+	// ListWithCount returns all entities that match the given filters.
+	// It also returns the total number of matching entities (ignoring limit and offset).
+	ListWithCount(ctx context.Context, filters F) ([]E, int, error)
 	// FirstOrNil returns the first entity matching the filters, or nil if none found.
 	FirstOrNil(ctx context.Context, filters F) (*E, error)
 	// Exists checks if any entity matches the filters.

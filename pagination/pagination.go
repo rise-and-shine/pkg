@@ -5,7 +5,7 @@ import (
 )
 
 type Params struct {
-	Limit  int `query:"limit" json:"limit,omitempty"`
+	Limit  int `query:"limit"  json:"limit,omitempty"`
 	Offset int `query:"offset" json:"offset,omitempty"`
 
 	// Page specifies the page number (1-based, used with Size)
@@ -51,7 +51,7 @@ func DefaultConfig() Config {
 	}
 }
 
-// hasPageSize returns true if the pagination uses page/size approach
+// hasPageSize returns true if the pagination uses page/size approach.
 func (p *Params) hasPageSize() bool {
 	// If Page or Size is set, it's a page/size approach
 	return p.Page > 0 || p.Size > 0
@@ -99,23 +99,23 @@ func (p *Params) Normalize(cfg Config) {
 
 // ToLimitOffset returns the limit and offset values.
 // This is useful when working with databases that use limit/offset.
-func (p *Params) ToLimitOffset() (limit, offset int) {
+func (p *Params) ToLimitOffset() (int, int) {
 	return p.Limit, p.Offset
 }
 
 // ToPageSize returns the page and size values.
 // If page/size weren't originally set, they're calculated from limit/offset.
-func (p *Params) ToPageSize() (page, size int) {
+func (p *Params) ToPageSize() (int, int) {
 	if p.usesPageSize || p.hasPageSize() {
 		return p.Page, p.Size
 	}
 
 	// Calculate from limit/offset
-	size = p.Limit
+	size := p.Limit
 	if size <= 0 {
 		size = 1
 	}
-	page = (p.Offset / size) + 1
+	page := (p.Offset / size) + 1
 	return page, size
 }
 

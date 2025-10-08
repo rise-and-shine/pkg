@@ -29,7 +29,7 @@ func NewPgRepo[E any, F any](
 	conflictCode string,
 	filterFunc func(q *bun.SelectQuery, filters F) *bun.SelectQuery,
 ) *PgRepo[E, F] {
-	roRepo := NewPgReadOnlyRepo[E, F](idb, entityName, notFoundCode, filterFunc)
+	roRepo := NewPgReadOnlyRepo[E](idb, entityName, notFoundCode, filterFunc)
 
 	return &PgRepo[E, F]{
 		PgReadOnlyRepo: roRepo,
