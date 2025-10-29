@@ -3,6 +3,7 @@ package cfgloader
 import (
 	"fmt"
 	"log/slog"
+	"os"
 	"reflect"
 	"strings"
 
@@ -14,9 +15,10 @@ func printConfig(config any) {
 
 	out, err := yaml.Marshal(masked)
 	if err != nil {
-		slog.Error("failed to marshal config", "error", err.Error())
+		slog.Error("[cfgloader]: failed to marshal config", "error", err.Error())
+		os.Exit(1)
 	}
-	slog.Info(fmt.Sprintf("Loaded config:\n%s", string(out)))
+	fmt.Printf("[cfgloader]: loaded config\n%s\n", string(out)) //nolint:forbidigo // print config to stdout
 }
 
 func maskStruct(cfg any) any {
@@ -52,7 +54,7 @@ func maskValue(val reflect.Value) reflect.Value {
 				continue
 			}
 
-			if field.Tag.Get("mask") == "true" {
+			if field.Tag.Get("secret") == "true" {
 				masked.Field(i).Set(maskAny(origVal))
 			} else {
 				masked.Field(i).Set(maskValue(origVal))

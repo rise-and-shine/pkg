@@ -13,6 +13,9 @@ const (
 	nameKey    = "logger"
 	callerKey  = "file"
 	timeKey    = "time"
+
+	encPretty  = "pretty"
+	levelDebug = "debug"
 )
 
 // Config defines configuration options for the logger.
@@ -23,16 +26,19 @@ type Config struct {
 	Level string `yaml:"level" validate:"oneof=debug info warn error" default:"debug"`
 
 	// Encoding specifies the log format.
-	// Valid values are: "json", "console"
-	// Default is "json".
+	// Valid values are: "json", "pretty"
+	// Default is "pretty".
 	//
-	// When set to "console", the logger will use a development-friendly format:
+	// When set to "pretty", the logger will use a development-friendly format:
 	// - Colored output based on log levels
 	// - Pretty-printed JSON for complex objects and nested structures
 	//
 	// When set to "json", the logger will produce compact JSON logs suitable
 	// for production environments and log processing systems.
-	Encoding string `yaml:"encoding" validate:"oneof=json console" default:"json"`
+	Encoding string `yaml:"encoding" validate:"oneof=json pretty" default:"pretty"`
+
+	// Disable creates no-op logger . Useful in testing environments. Default is false.
+	Disable bool `yaml:"disabled" default:"false"`
 }
 
 // getZapConfig converts the logger Config to a zap.Config.

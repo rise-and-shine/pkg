@@ -1,18 +1,13 @@
 // Package logger provides a structured logging interface for applications.
-//
-// It wraps the zap logging library to provide a simpler API while maintaining
-// high performance. The package supports different log levels, formatting options,
-// and context-aware logging.
 package logger
 
 import (
 	"context"
-	"os"
+	"errors"
 
 	"github.com/code19m/errx"
 	"github.com/rise-and-shine/pkg/meta"
 	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 )
 
 // Logger defines the standard logging interface used across applications.
@@ -40,6 +35,11 @@ type Logger interface {
 	// Fatalf logs a formatted message at fatal level and then calls os.Exit(1).
 	Fatalf(format string, args ...any)
 
+	// Warnx is a special method for easy logging errx.ErrorX instances at warn level.
+	Warnx(err error)
+	// Errorx is a special method for easy logging errx.ErrorX instances at error level.
+	Errorx(err error)
+
 	// With creates a new logger with the given key-value pairs.
 	// The returned logger inherits the properties of the original logger
 	// and includes the provided key-value pairs in all subsequent log entries.
@@ -63,44 +63,57 @@ type logger struct {
 
 // New creates a new Logger instance with the provided configuration.
 func New(cfg Config) (Logger, error) {
+	if cfg.Disable {
+		return &logger{zap.NewNop().Sugar()}, nil
+	}
+
 	zapConfig, err := cfg.getZapConfig()
 	if err != nil {
 		return nil, errx.Wrap(err)
 	}
 
-	var zapLogger *zap.Logger
-
-	// Use custom development encoder for console mode
-	if cfg.Encoding == "console" {
-		// Initialize custom encoder config
-		encoderConfig := zapConfig.EncoderConfig
-
-		// Create the custom development encoder
-		enc := newDevEncoder(encoderConfig)
-
-		// Build a core with our custom encoder
-		core := zapcore.NewCore(
-			enc,
-			zapcore.AddSync(os.Stdout),
-			zapConfig.Level,
-		)
-
-		// Build the logger with the custom core
-		zapLogger = zap.New(core,
-			zap.AddCaller(),
-			zap.AddCallerSkip(1),
-		)
-	} else {
-		// For regular JSON mode, use the standard build method
-		zapLogger, err = zapConfig.Build()
-		if err != nil {
-			return nil, errx.Wrap(err)
-		}
+	// Use custom development encoder for pretty mode
+	if cfg.Encoding == encPretty {
+		return &logger{newPrettyLogger(zapConfig).Sugar()}, nil
 	}
 
-	return &logger{
-		SugaredLogger: zapLogger.Sugar(),
-	}, nil
+	// Build the zap logger for JSON mode
+	jsonLogger, err := zapConfig.Build()
+	if err != nil {
+		return nil, errx.Wrap(err)
+	}
+
+	return &logger{jsonLogger.Sugar()}, nil
+}
+
+func (l *logger) Warnx(err error) {
+	var e errx.ErrorX
+	if errors.As(err, &e) {
+		l.With(
+			"error_code", e.Code(),
+			"error_type", e.Type().String(),
+			"error_trace", e.Trace(),
+			"error_fields", e.Fields(),
+			"error_details", e.Details(),
+		).Warn(err.Error())
+		return
+	}
+	l.Warn(err.Error())
+}
+
+func (l *logger) Errorx(err error) {
+	var e errx.ErrorX
+	if errors.As(err, &e) {
+		l.With(
+			"error_code", e.Code(),
+			"error_type", e.Type().String(),
+			"error_trace", e.Trace(),
+			"error_fields", e.Fields(),
+			"error_details", e.Details(),
+		).Error(err.Error())
+		return
+	}
+	l.Error(err.Error())
 }
 
 func (l *logger) With(keysAndValues ...any) Logger {
