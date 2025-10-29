@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	alertTimeout = 3 * time.Second
+	alertSendTimeout = 3 * time.Second
 )
 
 // NewAlertingMW creates a middleware that sends alerts for internal server errors.
@@ -59,7 +59,7 @@ func NewAlertingMW(logger logger.Logger, provider alert.Provider) server.Middlew
 			details["request_user_type"] = cast.ToString(c.Locals(meta.RequestUserType))
 			details["request_user_role"] = cast.ToString(c.Locals(meta.RequestUserRole))
 
-			newCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), alertTimeout)
+			newCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), alertSendTimeout)
 
 			go func() {
 				defer cancel() // ensure newCtx is cancelled after sending alert

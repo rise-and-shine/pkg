@@ -22,7 +22,7 @@ func NewHTTPServer(cfg Config, middlewares []Middleware) *HTTPServer {
 		ReadTimeout:              cfg.ReadTimeout,
 		WriteTimeout:             cfg.WriteTimeout,
 		IdleTimeout:              cfg.IdleTimeout,
-		ErrorHandler:             customErrorHandler(),
+		ErrorHandler:             customErrorHandler(cfg.Debug),
 		DisableStartupMessage:    true,
 		Immutable:                true,
 		BodyLimit:                cfg.BodyLimit,
@@ -53,19 +53,4 @@ func (s *HTTPServer) Start() error {
 // Stop gracefully stops the server, allowing for ongoing requests to complete.
 func (s *HTTPServer) Stop() error {
 	return s.router.Shutdown()
-}
-
-// customErrorHandler returns a Fiber error handler that ensures consistent error responses.
-//
-// If the response status code is already set to an error (>= 400), it does not override it.
-// Otherwise, it delegates to Fiber's default error handler.
-func customErrorHandler() fiber.ErrorHandler {
-	return func(ctx *fiber.Ctx, err error) error {
-		r := ctx.Response()
-		if r != nil && r.StatusCode() >= 400 {
-			return nil
-		}
-
-		return fiber.DefaultErrorHandler(ctx, err)
-	}
 }
