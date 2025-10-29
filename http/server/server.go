@@ -45,6 +45,11 @@ func (s *HTTPServer) RegisterRouter(registerFunc func(r fiber.Router)) {
 	registerFunc(s.router)
 }
 
+// GetApp returns the underlying Fiber application instance.
+func (s *HTTPServer) GetApp() *fiber.App {
+	return s.router
+}
+
 // Start begins listening for incoming HTTP requests on the configured address.
 func (s *HTTPServer) Start() error {
 	return s.router.Listen(s.listenAddr)
