@@ -10,24 +10,17 @@ import (
 	"github.com/uptrace/bun"
 )
 
-// Common errors
 var (
 	ErrEventNotFound = errors.New("event not found")
 )
 
-// Event represents a domain event that needs to be published
 type Event interface {
-	// EventType returns the type/name of the event
 	EventType() string
-	// EventData returns the payload data for the event
 	EventData() interface{}
-	// AggregateID returns the ID of the aggregate that generated this event
 	AggregateID() string
-	// EventVersion returns the version of the event schema (for evolution)
 	EventVersion() string
 }
 
-// BaseEvent provides a default implementation of Event interface
 type BaseEvent struct {
 	Type        string      `json:"type"`
 	Data        interface{} `json:"data"`
@@ -57,7 +50,6 @@ func (e BaseEvent) EventVersion() string {
 	return e.Version
 }
 
-// EventBuilder helps create events with proper metadata
 type EventBuilder struct {
 	eventType   string
 	aggregateID string
@@ -107,7 +99,6 @@ func (b *EventBuilder) Build() BaseEvent {
 	}
 }
 
-// EventStatus represents the status of an outbox event
 type EventStatus string
 
 const (
@@ -116,7 +107,6 @@ const (
 	EventStatusFailed  EventStatus = "failed"
 )
 
-// OutboxEntry represents a stored event in the outbox table
 type OutboxEntry struct {
 	bun.BaseModel `bun:"table:outbox_events,alias:oe"`
 
@@ -144,7 +134,6 @@ type OutboxEntry struct {
 	Seq           *int64                 `bun:"seq" json:"seq,omitempty"`
 }
 
-// BeforeAppendModel implements bun.BeforeAppendModelHook
 func (e *OutboxEntry) BeforeAppendModel(ctx context.Context, query bun.Query) error {
 	switch query.(type) {
 	case *bun.InsertQuery:
@@ -153,7 +142,6 @@ func (e *OutboxEntry) BeforeAppendModel(ctx context.Context, query bun.Query) er
 		}
 		e.CreatedAt = time.Now()
 		e.UpdatedAt = time.Now()
-		// Set AvailableAt to now if not set
 		if e.AvailableAt.IsZero() {
 			e.AvailableAt = time.Now()
 		}
@@ -163,7 +151,6 @@ func (e *OutboxEntry) BeforeAppendModel(ctx context.Context, query bun.Query) er
 	return nil
 }
 
-// ToJSON converts the outbox entry to JSON for publishing
 func (e *OutboxEntry) ToJSON() ([]byte, error) {
 	eventData := map[string]interface{}{
 		"id":           e.ID,
@@ -179,17 +166,14 @@ func (e *OutboxEntry) ToJSON() ([]byte, error) {
 	return json.Marshal(eventData)
 }
 
-// SetRetryDelay calculates and sets the next available time based on exponential backoff
 func (e *OutboxEntry) SetRetryDelay() {
-	// Exponential backoff: 2^attempts seconds
-	delaySeconds := 1 << e.Attempts // 1, 2, 4, 8, 16, 32, 64...
-	if delaySeconds > 3600 {        // Max 1 hour
+	delaySeconds := 1 << e.Attempts
+	if delaySeconds > 3600 {
 		delaySeconds = 3600
 	}
 	e.AvailableAt = time.Now().Add(time.Duration(delaySeconds) * time.Second)
 }
 
-// OutboxOffset tracks the last processed event for each service
 type OutboxOffset struct {
 	bun.BaseModel `bun:"table:outbox_offset,alias:oo"`
 
@@ -199,7 +183,6 @@ type OutboxOffset struct {
 	UpdatedAt     time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"updated_at"`
 }
 
-// BeforeAppendModel implements bun.BeforeAppendModelHook
 func (o *OutboxOffset) BeforeAppendModel(ctx context.Context, query bun.Query) error {
 	switch query.(type) {
 	case *bun.UpdateQuery:
@@ -212,17 +195,14 @@ func (o *OutboxOffset) BeforeAppendModel(ctx context.Context, query bun.Query) e
 	return nil
 }
 
-// OutboxStatus represents the status of an outbox event (alias for EventStatus)
 type OutboxStatus = EventStatus
 
-// Additional status constants for consistency
 const (
 	StatusPending   OutboxStatus = EventStatusPending
 	StatusPublished OutboxStatus = EventStatusSent
 	StatusFailed    OutboxStatus = EventStatusFailed
 )
 
-// Message represents a message to be published
 type Message struct {
 	ID        string            `json:"id"`
 	Topic     string            `json:"topic"`
@@ -232,7 +212,6 @@ type Message struct {
 	Timestamp time.Time         `json:"timestamp"`
 }
 
-// PublishEvent represents an event to be published
 type PublishEvent struct {
 	ID           string                 `json:"id"`
 	EventType    string                 `json:"event_type"`
@@ -247,37 +226,26 @@ type PublishEvent struct {
 	CreatedAt    time.Time              `json:"created_at"`
 }
 
-// Publisher defines the interface for publishing events to external systems
 type Publisher interface {
-	// Publish publishes a message to the configured destination
 	Publish(ctx context.Context, message *Message) error
-	// Close closes the publisher and releases resources
 	Close() error
 }
 
-// Logger defines the interface for logging operations
 type Logger interface {
-	// Info logs an info message with optional fields
 	Info(msg string, fields map[string]interface{})
-	// Error logs an error message with optional fields
 	Error(msg string, fields map[string]interface{})
-	// Debug logs a debug message with optional fields
 	Debug(msg string, fields map[string]interface{})
-	// Warn logs a warning message with optional fields
 	Warn(msg string, fields map[string]interface{})
 }
 
-// CalculateRetryDelay calculates exponential backoff delay
 func CalculateRetryDelay(retryCount int, baseDelay time.Duration) time.Duration {
 	if retryCount <= 0 {
 		return baseDelay
 	}
 
-	// Exponential backoff: baseDelay * 2^retryCount
-	multiplier := 1 << uint(retryCount) // 2^retryCount
+	multiplier := 1 << uint(retryCount)
 	delay := baseDelay * time.Duration(multiplier)
 
-	// Cap at 1 hour
 	maxDelay := time.Hour
 	if delay > maxDelay {
 		delay = maxDelay
@@ -286,20 +254,16 @@ func CalculateRetryDelay(retryCount int, baseDelay time.Duration) time.Duration 
 	return delay
 }
 
-// NoOpPublisher is a publisher that does nothing (for testing)
 type NoOpPublisher struct{}
 
-// NewNoOpPublisher creates a new no-op publisher
 func NewNoOpPublisher() Publisher {
 	return &NoOpPublisher{}
 }
 
-// Publish does nothing and always returns nil
 func (n *NoOpPublisher) Publish(ctx context.Context, message *Message) error {
 	return nil
 }
 
-// Close does nothing
 func (n *NoOpPublisher) Close() error {
 	return nil
 }

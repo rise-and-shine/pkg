@@ -6,22 +6,16 @@ import (
 	"fmt"
 )
 
-//go:embed migrations/*.sql
 var migrationsFS embed.FS
 
-// MigrationConfig configures migration behavior
 type MigrationConfig struct {
-	// TableName is the name of the outbox table (default: "outbox_events")
 	TableName string
 
-	// OffsetTableName is the name of the offset tracking table (default: "outbox_offset")
 	OffsetTableName string
 
-	// SkipIfExists skips migration if tables already exist (default: true)
 	SkipIfExists bool
 }
 
-// DefaultMigrationConfig returns default configuration
 func DefaultMigrationConfig() MigrationConfig {
 	return MigrationConfig{
 		TableName:       "outbox_events",
@@ -30,31 +24,26 @@ func DefaultMigrationConfig() MigrationConfig {
 	}
 }
 
-// RunMigrations executes the embedded SQL migrations
-// This is a simple migration runner - for production, use a proper migration tool like golang-migrate or goose
 func RunMigrations(db *sql.DB, cfg MigrationConfig) error {
 	if cfg.TableName == "" {
 		cfg = DefaultMigrationConfig()
 	}
 
-	// Check if table already exists
 	if cfg.SkipIfExists {
 		exists, err := tableExists(db, cfg.TableName)
 		if err != nil {
 			return fmt.Errorf("failed to check if table exists: %w", err)
 		}
 		if exists {
-			return nil // Table already exists, skip migration
+			return nil
 		}
 	}
 
-	// Read migration file
 	migrationSQL, err := migrationsFS.ReadFile("migrations/001_enhanced_outbox.sql")
 	if err != nil {
 		return fmt.Errorf("failed to read migration file: %w", err)
 	}
 
-	// Execute migration
 	_, err = db.Exec(string(migrationSQL))
 	if err != nil {
 		return fmt.Errorf("failed to execute migration: %w", err)
@@ -63,7 +52,6 @@ func RunMigrations(db *sql.DB, cfg MigrationConfig) error {
 	return nil
 }
 
-// GetMigrationSQL returns the SQL migration content for custom usage
 func GetMigrationSQL() (string, error) {
 	content, err := migrationsFS.ReadFile("migrations/001_enhanced_outbox.sql")
 	if err != nil {
@@ -72,7 +60,6 @@ func GetMigrationSQL() (string, error) {
 	return string(content), nil
 }
 
-// tableExists checks if a table exists in the database
 func tableExists(db *sql.DB, tableName string) (bool, error) {
 	var exists bool
 	query := `
@@ -89,13 +76,11 @@ func tableExists(db *sql.DB, tableName string) (bool, error) {
 	return exists, nil
 }
 
-// MigrationHelper provides utilities for working with migrations
 type MigrationHelper struct {
 	db  *sql.DB
 	cfg MigrationConfig
 }
 
-// NewMigrationHelper creates a new migration helper
 func NewMigrationHelper(db *sql.DB, cfg MigrationConfig) *MigrationHelper {
 	if cfg.TableName == "" {
 		cfg = DefaultMigrationConfig()
@@ -106,23 +91,19 @@ func NewMigrationHelper(db *sql.DB, cfg MigrationConfig) *MigrationHelper {
 	}
 }
 
-// EnsureTables ensures outbox tables exist, creates them if they don't
 func (m *MigrationHelper) EnsureTables() error {
 	return RunMigrations(m.db, m.cfg)
 }
 
-// GetTableStatus returns information about the outbox tables
 func (m *MigrationHelper) GetTableStatus() (map[string]bool, error) {
 	status := make(map[string]bool)
 
-	// Check main table
 	exists, err := tableExists(m.db, m.cfg.TableName)
 	if err != nil {
 		return nil, err
 	}
 	status[m.cfg.TableName] = exists
 
-	// Check offset table
 	exists, err = tableExists(m.db, m.cfg.OffsetTableName)
 	if err != nil {
 		return nil, err
@@ -132,7 +113,6 @@ func (m *MigrationHelper) GetTableStatus() (map[string]bool, error) {
 	return status, nil
 }
 
-// DropTables drops the outbox tables (use with caution!)
 func (m *MigrationHelper) DropTables() error {
 	queries := []string{
 		fmt.Sprintf("DROP TABLE IF EXISTS %s CASCADE;", m.cfg.OffsetTableName),
@@ -149,7 +129,6 @@ func (m *MigrationHelper) DropTables() error {
 	return nil
 }
 
-// GetTableRowCount returns the number of rows in the outbox table
 func (m *MigrationHelper) GetTableRowCount() (int64, error) {
 	var count int64
 	query := fmt.Sprintf("SELECT COUNT(*) FROM %s", m.cfg.TableName)
@@ -160,7 +139,6 @@ func (m *MigrationHelper) GetTableRowCount() (int64, error) {
 	return count, nil
 }
 
-// GetPendingEventCount returns the number of pending events
 func (m *MigrationHelper) GetPendingEventCount() (int64, error) {
 	var count int64
 	query := fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE status = 'pending'", m.cfg.TableName)

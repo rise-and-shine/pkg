@@ -43,7 +43,6 @@ type Processor struct {
 	logger    logger.Logger
 	publisher Publisher
 
-	// Internal state
 	stopCh  chan struct{}
 	stopped chan struct{}
 }
@@ -91,7 +90,8 @@ func (p *Processor) startWithBuiltInProcessor(ctx context.Context) error {
 	}
 
 	eventProcessor := func(events []*OutboxEntry) error {
-		publishedCount := 0
+		successfulEventIDs := make([]uuid.UUID, 0, len(events))
+
 		for _, event := range events {
 			if err := p.publishEvent(ctx, event); err != nil {
 				p.logger.With("event_id", event.ID).
@@ -105,21 +105,15 @@ func (p *Processor) startWithBuiltInProcessor(ctx context.Context) error {
 				}
 				continue
 			}
-			publishedCount++
+			successfulEventIDs = append(successfulEventIDs, event.ID)
 		}
 
-		if publishedCount > 0 {
-			eventIDs := make([]uuid.UUID, 0, publishedCount)
-			for i, event := range events {
-				if i < publishedCount {
-					eventIDs = append(eventIDs, event.ID)
-				}
-			}
-			if err := p.service.MarkAsPublished(ctx, eventIDs); err != nil {
+		if len(successfulEventIDs) > 0 {
+			if err := p.service.MarkAsPublished(ctx, successfulEventIDs); err != nil {
 				return fmt.Errorf("failed to mark events as published: %w", err)
 			}
 
-			p.logger.With("published_count", publishedCount).
+			p.logger.With("published_count", len(successfulEventIDs)).
 				Info("processed events with built-in processor")
 		}
 		return nil
@@ -179,7 +173,8 @@ func (p *Processor) processLoop(ctx context.Context) {
 func (p *Processor) processEvents(ctx context.Context) {
 	log := p.logger.WithContext(ctx)
 
-	publishedCount := 0
+	successfulEventIDs := make([]uuid.UUID, 0)
+
 	eventProcessor := func(events []*OutboxEntry) error {
 		for _, event := range events {
 			if err := p.publishEvent(ctx, event); err != nil {
@@ -194,17 +189,11 @@ func (p *Processor) processEvents(ctx context.Context) {
 				}
 				continue
 			}
-			publishedCount++
+			successfulEventIDs = append(successfulEventIDs, event.ID)
 		}
 
-		if publishedCount > 0 {
-			eventIDs := make([]uuid.UUID, 0, publishedCount)
-			for i, event := range events {
-				if i < publishedCount {
-					eventIDs = append(eventIDs, event.ID)
-				}
-			}
-			if err := p.service.MarkAsPublished(ctx, eventIDs); err != nil {
+		if len(successfulEventIDs) > 0 {
+			if err := p.service.MarkAsPublished(ctx, successfulEventIDs); err != nil {
 				log.With("error", err).Error("failed to mark events as published")
 				return err
 			}
@@ -218,7 +207,8 @@ func (p *Processor) processEvents(ctx context.Context) {
 		return
 	}
 
-	retriedCount := 0
+	successfulRetryIDs := make([]uuid.UUID, 0)
+
 	retryProcessor := func(events []*OutboxEntry) error {
 		for _, event := range events {
 			if err := p.publishEvent(ctx, event); err != nil {
@@ -233,17 +223,11 @@ func (p *Processor) processEvents(ctx context.Context) {
 				}
 				continue
 			}
-			retriedCount++
+			successfulRetryIDs = append(successfulRetryIDs, event.ID)
 		}
 
-		if retriedCount > 0 {
-			eventIDs := make([]uuid.UUID, 0, retriedCount)
-			for i, event := range events {
-				if i < retriedCount {
-					eventIDs = append(eventIDs, event.ID)
-				}
-			}
-			if err := p.service.MarkAsPublished(ctx, eventIDs); err != nil {
+		if len(successfulRetryIDs) > 0 {
+			if err := p.service.MarkAsPublished(ctx, successfulRetryIDs); err != nil {
 				log.With("error", err).Error("failed to mark retried events as published")
 				return err
 			}
@@ -255,10 +239,10 @@ func (p *Processor) processEvents(ctx context.Context) {
 		log.With("error", err).Error("failed to retry failed outbox events")
 	}
 
-	totalProcessed := publishedCount + retriedCount
+	totalProcessed := len(successfulEventIDs) + len(successfulRetryIDs)
 	if totalProcessed > 0 {
-		log.With("published_count", publishedCount).
-			With("retried_count", retriedCount).
+		log.With("published_count", len(successfulEventIDs)).
+			With("retried_count", len(successfulRetryIDs)).
 			With("total_processed", totalProcessed).
 			Info("processed outbox events")
 	}
@@ -286,7 +270,6 @@ func (p *Processor) publishEvent(ctx context.Context, entry *OutboxEntry) error 
 	return p.publisher.Publish(ctx, message)
 }
 
-// buildHeaders builds message headers from outbox entry
 func (p *Processor) buildHeaders(entry *OutboxEntry) map[string]string {
 	headers := map[string]string{
 		"event-id":     entry.ID.String(),
@@ -310,12 +293,10 @@ func (p *Processor) buildHeaders(entry *OutboxEntry) map[string]string {
 	return headers
 }
 
-// cleanupLoop runs the cleanup process periodically
 func (p *Processor) cleanupLoop(ctx context.Context) {
 	ticker := time.NewTicker(p.config.CleanupInterval)
 	defer ticker.Stop()
 
-	// Run cleanup immediately on start
 	p.runCleanup(ctx)
 
 	for {
@@ -330,7 +311,6 @@ func (p *Processor) cleanupLoop(ctx context.Context) {
 	}
 }
 
-// runCleanup performs cleanup of old events using enhanced service
 func (p *Processor) runCleanup(ctx context.Context) {
 	log := p.logger.WithContext(ctx)
 
@@ -350,7 +330,6 @@ func (p *Processor) runCleanup(ctx context.Context) {
 	}
 }
 
-// Healthcheck returns the health status of the processor
 func (p *Processor) Healthcheck() error {
 	select {
 	case <-p.stopped:
@@ -360,7 +339,6 @@ func (p *Processor) Healthcheck() error {
 	}
 }
 
-// Stats returns enhanced processor statistics
 func (p *Processor) Stats() map[string]interface{} {
 	return map[string]interface{}{
 		"service_name":     p.config.ServiceName,
@@ -378,7 +356,6 @@ func (p *Processor) Stats() map[string]interface{} {
 	}
 }
 
-// getProcessorType returns the type of processor being used
 func (p *Processor) getProcessorType() string {
 	if p.canUseBuiltInProcessor() {
 		return "enhanced_built_in"

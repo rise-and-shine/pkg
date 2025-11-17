@@ -11,22 +11,16 @@ import (
 	"github.com/uptrace/bun"
 )
 
-// EnhancedRepository provides the enhanced outbox functionality with the new features
 type Repository interface {
-	// Enhanced storage with deduplication support
 	StoreWithDeduplication(ctx context.Context, tx bun.Tx, event Event, topic string, options ...StoreOption) error
 
-	// Get events that are available for processing (considering available_at)
 	GetAvailableEvents(ctx context.Context, limit int) ([]*OutboxEntry, error)
 
-	// Enhanced status management
 	MarkAsPublished(ctx context.Context, id uuid.UUID) error
 	MarkAsFailed(ctx context.Context, id uuid.UUID, errorMsg string) error
 
-	// Maintenance operations
 	DeleteOldEvents(ctx context.Context, olderThan time.Duration) error
 
-	// Offset management for reliable processing
 	GetOffset(ctx context.Context, serviceName string) (*OutboxOffset, error)
 	UpdateOffset(ctx context.Context, serviceName string, lastEventID uuid.UUID) error
 }
@@ -35,12 +29,10 @@ type repository struct {
 	db *bun.DB
 }
 
-// NewEnhancedRepository creates a new enhanced outbox repository
 func NewRepository(db *bun.DB) Repository {
 	return &repository{db: db}
 }
 
-// Store options
 type StoreOption func(*storeOptions)
 
 type storeOptions struct {
@@ -53,56 +45,48 @@ type storeOptions struct {
 	availableAt   *time.Time
 }
 
-// WithPartitionKey sets the partition key for Kafka publishing
 func WithPartitionKey(key string) StoreOption {
 	return func(opts *storeOptions) {
 		opts.partitionKey = &key
 	}
 }
 
-// WithUserID sets the user ID for audit trail
 func WithUserID(userID string) StoreOption {
 	return func(opts *storeOptions) {
 		opts.userID = &userID
 	}
 }
 
-// WithTraceID sets the trace ID for distributed tracing
 func WithTraceID(traceID string) StoreOption {
 	return func(opts *storeOptions) {
 		opts.traceID = &traceID
 	}
 }
 
-// WithDedupKey sets a deduplication key to prevent duplicate events
 func WithDedupKey(key string) StoreOption {
 	return func(opts *storeOptions) {
 		opts.dedupKey = &key
 	}
 }
 
-// WithHeaders adds custom headers to the event
 func WithHeaders(headers map[string]interface{}) StoreOption {
 	return func(opts *storeOptions) {
 		opts.headers = headers
 	}
 }
 
-// WithAggregateType explicitly sets the aggregate type
 func WithAggregateType(aggregateType string) StoreOption {
 	return func(opts *storeOptions) {
 		opts.aggregateType = aggregateType
 	}
 }
 
-// WithDelayedProcessing schedules the event for later processing
 func WithDelayedProcessing(availableAt time.Time) StoreOption {
 	return func(opts *storeOptions) {
 		opts.availableAt = &availableAt
 	}
 }
 
-// StoreWithDeduplication implements Repository interface
 func (r *repository) StoreWithDeduplication(ctx context.Context, tx bun.Tx, event Event, topic string, options ...StoreOption) error {
 	opts := &storeOptions{
 		headers: make(map[string]interface{}),
@@ -111,7 +95,6 @@ func (r *repository) StoreWithDeduplication(ctx context.Context, tx bun.Tx, even
 		option(opts)
 	}
 
-	// Check for duplicate if dedup key is provided
 	if opts.dedupKey != nil && *opts.dedupKey != "" {
 		exists, err := tx.NewSelect().
 			Model((*OutboxEntry)(nil)).
@@ -121,11 +104,10 @@ func (r *repository) StoreWithDeduplication(ctx context.Context, tx bun.Tx, even
 			return fmt.Errorf("failed to check for duplicate: %w", err)
 		}
 		if exists {
-			return nil // Already exists, skip
+			return nil 
 		}
 	}
 
-	// Convert event data to JSON-compatible format
 	eventDataBytes, err := json.Marshal(event.EventData())
 	if err != nil {
 		return fmt.Errorf("failed to marshal event data: %w", err)
@@ -136,13 +118,11 @@ func (r *repository) StoreWithDeduplication(ctx context.Context, tx bun.Tx, even
 		return fmt.Errorf("failed to unmarshal event data: %w", err)
 	}
 
-	// Determine aggregate type
 	aggregateType := opts.aggregateType
 	if aggregateType == "" {
-		aggregateType = event.EventType() // Fallback to event type
+		aggregateType = event.EventType() 
 	}
 
-	// Create enhanced outbox entry
 	entry := &OutboxEntry{
 		AggregateType: aggregateType,
 		AggregateID:   event.AggregateID(),
@@ -159,20 +139,17 @@ func (r *repository) StoreWithDeduplication(ctx context.Context, tx bun.Tx, even
 		Attempts:      0,
 	}
 
-	// Set availability time
 	if opts.availableAt != nil {
 		entry.AvailableAt = *opts.availableAt
 	} else {
 		entry.AvailableAt = time.Now()
 	}
 
-	// If no partition key specified, use aggregate ID
 	if entry.PartitionKey == nil {
 		key := event.AggregateID()
 		entry.PartitionKey = &key
 	}
 
-	// Insert into outbox table
 	if _, err := tx.NewInsert().Model(entry).Exec(ctx); err != nil {
 		return fmt.Errorf("failed to insert outbox entry: %w", err)
 	}
@@ -180,7 +157,6 @@ func (r *repository) StoreWithDeduplication(ctx context.Context, tx bun.Tx, even
 	return nil
 }
 
-// GetAvailableEvents implements EnhancedRepository interface
 func (r *repository) GetAvailableEvents(ctx context.Context, limit int) ([]*OutboxEntry, error) {
 	var entries []*OutboxEntry
 	err := r.db.NewSelect().
@@ -192,7 +168,6 @@ func (r *repository) GetAvailableEvents(ctx context.Context, limit int) ([]*Outb
 	return entries, err
 }
 
-// MarkAsPublished implements EnhancedRepository interface
 func (r *repository) MarkAsPublished(ctx context.Context, id uuid.UUID) error {
 	now := time.Now()
 	_, err := r.db.NewUpdate().
@@ -205,9 +180,7 @@ func (r *repository) MarkAsPublished(ctx context.Context, id uuid.UUID) error {
 	return err
 }
 
-// MarkAsFailed implements EnhancedRepository interface
 func (r *repository) MarkAsFailed(ctx context.Context, id uuid.UUID, errorMsg string) error {
-	// Get current entry to calculate retry delay
 	var entry OutboxEntry
 	err := r.db.NewSelect().
 		Model(&entry).
@@ -217,7 +190,6 @@ func (r *repository) MarkAsFailed(ctx context.Context, id uuid.UUID, errorMsg st
 		return err
 	}
 
-	// Calculate next available time with exponential backoff
 	entry.Attempts++
 	entry.SetRetryDelay()
 	entry.Status = EventStatusFailed
@@ -235,7 +207,6 @@ func (r *repository) MarkAsFailed(ctx context.Context, id uuid.UUID, errorMsg st
 	return err
 }
 
-// DeleteOldEvents implements EnhancedRepository interface
 func (r *repository) DeleteOldEvents(ctx context.Context, olderThan time.Duration) error {
 	cutoff := time.Now().Add(-olderThan)
 	_, err := r.db.NewDelete().
@@ -245,7 +216,6 @@ func (r *repository) DeleteOldEvents(ctx context.Context, olderThan time.Duratio
 	return err
 }
 
-// GetOffset implements EnhancedRepository interface
 func (r *repository) GetOffset(ctx context.Context, serviceName string) (*OutboxOffset, error) {
 	offset := &OutboxOffset{}
 	err := r.db.NewSelect().
@@ -258,7 +228,6 @@ func (r *repository) GetOffset(ctx context.Context, serviceName string) (*Outbox
 	return offset, err
 }
 
-// UpdateOffset implements EnhancedRepository interface
 func (r *repository) UpdateOffset(ctx context.Context, serviceName string, lastEventID uuid.UUID) error {
 	offset := &OutboxOffset{
 		ServiceName: serviceName,
