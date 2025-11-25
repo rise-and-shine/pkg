@@ -39,6 +39,8 @@ type Logger interface {
 	Warnx(err error)
 	// Errorx is a special method for easy logging errx.ErrorX instances at error level.
 	Errorx(err error)
+	// Fatalx is a special method for easy logging errx.ErrorX instances at fatal level and then calls os.Exit(1).
+	Fatalx(err error)
 
 	// With creates a new logger with the given key-value pairs.
 	// The returned logger inherits the properties of the original logger
@@ -114,6 +116,21 @@ func (l *logger) Errorx(err error) {
 		return
 	}
 	l.Error(err.Error())
+}
+
+func (l *logger) Fatalx(err error) {
+	var e errx.ErrorX
+	if errors.As(err, &e) {
+		l.With(
+			"error_code", e.Code(),
+			"error_type", e.Type().String(),
+			"error_trace", e.Trace(),
+			"error_fields", e.Fields(),
+			"error_details", e.Details(),
+		).Fatal(err.Error())
+		return
+	}
+	l.Fatal(err.Error())
 }
 
 func (l *logger) With(keysAndValues ...any) Logger {

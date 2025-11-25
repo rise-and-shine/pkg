@@ -14,14 +14,11 @@ const (
 	// TraceID represents a unique identifier for tracing requests across services.
 	TraceID ContextKey = "trace_id"
 
-	// RequestUserID identifies the user making the request.
-	RequestUserID ContextKey = "request_user_id"
+	// ActorType indicates the type of the actor triggering the action (user, cronjob, consumer, etc).
+	ActorType ContextKey = "actor_type"
 
-	// RequestUserType indicates the type of the user making the request.
-	RequestUserType ContextKey = "request_user_type"
-
-	// RequestUserRole indicates the current role of the user making the request.
-	RequestUserRole ContextKey = "request_user_role"
+	// ActorID represents the unique identifier of the actor.
+	ActorID ContextKey = "actor_id"
 
 	// IPAddress contains the client's IP address.
 	IPAddress ContextKey = "ip_address"
@@ -57,18 +54,6 @@ const (
 	XTzOffset ContextKey = "x-tz-offset"
 )
 
-// InjectMetaToContext adds metadata from the provided map to the context.
-// It only adds values that are not empty strings and returns a new context
-// with the added values.
-func InjectMetaToContext(ctx context.Context, data map[ContextKey]string) context.Context {
-	for k, v := range data {
-		if v != "" {
-			ctx = context.WithValue(ctx, k, v) //nolint:fatcontext // allow due to finite number of keys
-		}
-	}
-	return ctx
-}
-
 // ExtractMetaFromContext extracts all metadata from the provided context.
 // It retrieves values for all predefined context keys and returns them in a map.
 // Only non-empty string values are included in the returned map.
@@ -76,9 +61,8 @@ func ExtractMetaFromContext(ctx context.Context) map[ContextKey]string {
 	data := make(map[ContextKey]string)
 	for _, k := range []ContextKey{
 		TraceID,
-		RequestUserID,
-		RequestUserType,
-		RequestUserRole,
+		ActorType,
+		ActorID,
 		IPAddress,
 		UserAgent,
 		RemoteAddr,
@@ -105,7 +89,7 @@ func ShouldGetMeta(ctx context.Context, key ContextKey) (string, error) {
 		if str, ok := value.(string); ok {
 			return str, nil
 		}
-		return "", errx.New("meta type mismatch", errx.WithDetails(errx.D{"key": key, "value": value}))
+		return "", errx.New("[meta] type mismatch", errx.WithDetails(errx.D{"key": key, "value": value}))
 	}
-	return "", errx.New("meta not found", errx.WithDetails(errx.D{"key": key}))
+	return "", errx.New("[meta] key not found", errx.WithDetails(errx.D{"key": key}))
 }

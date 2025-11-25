@@ -41,3 +41,6 @@ __debug_bin
 .env.local
 *.env
 workfile*
+
+# Agentic coding
+.claude

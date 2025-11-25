@@ -54,12 +54,12 @@ func TestInjectMetaToContext(t *testing.T) {
 			initialCtx: context.Background(),
 			metaData: testMeta(
 				mp(meta.TraceID, "trace-123"),
-				mp(meta.RequestUserID, "user-456"),
+				mp(meta.ActorID, "user-456"),
 				mp(meta.IPAddress, "192.168.1.1"),
 				mp(meta.ServiceName, "auth-service"),
 				mp(meta.ServiceVersion, "v1.0.0"),
 			),
-			keyToVerify: meta.RequestUserID,
+			keyToVerify: meta.ActorID,
 			valueExpect: "user-456",
 		},
 		{
@@ -67,10 +67,10 @@ func TestInjectMetaToContext(t *testing.T) {
 			initialCtx: context.Background(),
 			metaData: testMeta(
 				mp(meta.TraceID, "trace-123"),
-				mp(meta.RequestUserID, ""),
+				mp(meta.ActorID, ""),
 				mp(meta.IPAddress, "192.168.1.1"),
 			),
-			keyToVerify: meta.RequestUserID,
+			keyToVerify: meta.ActorID,
 			nilValue:    true,
 		},
 		{
@@ -94,7 +94,12 @@ func TestInjectMetaToContext(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			// Act
-			resultCtx := meta.InjectMetaToContext(tc.initialCtx, tc.metaData)
+			resultCtx := tc.initialCtx
+			for k, v := range tc.metaData {
+				if v != "" {
+					resultCtx = context.WithValue(resultCtx, k, v)
+				}
+			}
 
 			// Assert
 			if tc.nilValue {
@@ -136,14 +141,14 @@ func TestExtractMetaFromContext(t *testing.T) {
 			ctxSetup: func() context.Context {
 				ctx := context.Background()
 				ctx = context.WithValue(ctx, meta.TraceID, "trace-123")
-				ctx = context.WithValue(ctx, meta.RequestUserID, "user-456")
+				ctx = context.WithValue(ctx, meta.ActorID, "user-456")
 				ctx = context.WithValue(ctx, meta.IPAddress, "192.168.1.1")
 				ctx = context.WithValue(ctx, meta.ServiceName, "auth-service")
 				return ctx
 			},
 			expected: testMeta(
 				mp(meta.TraceID, "trace-123"),
-				mp(meta.RequestUserID, "user-456"),
+				mp(meta.ActorID, "user-456"),
 				mp(meta.IPAddress, "192.168.1.1"),
 				mp(meta.ServiceName, "auth-service"),
 			),
@@ -165,7 +170,7 @@ func TestExtractMetaFromContext(t *testing.T) {
 			ctxSetup: func() context.Context {
 				ctx := context.Background()
 				ctx = context.WithValue(ctx, meta.TraceID, "trace-123")
-				ctx = context.WithValue(ctx, meta.RequestUserID, "") // Empty string
+				ctx = context.WithValue(ctx, meta.ActorID, "") // Empty string
 				return ctx
 			},
 			expected: testMeta(
@@ -214,18 +219,19 @@ func TestRoundTrip(t *testing.T) {
 	originalCtx := context.Background()
 	metadata := testMeta(
 		mp(meta.TraceID, "trace-123"),
-		mp(meta.RequestUserID, "user-456"),
 		mp(meta.IPAddress, "192.168.1.1"),
 		mp(meta.ServiceName, "auth-service"),
 		mp(meta.ServiceVersion, "v1.0.0"),
 		mp(meta.XClientAppName, "web-client"),
 		mp(meta.XClientAppOS, "macos"),
 		mp(meta.XClientAppVersion, "2.1.0"),
-		mp(meta.RequestUserType, "admin"),
 	)
 
 	// Act - Inject metadata into context
-	ctxWithMeta := meta.InjectMetaToContext(originalCtx, metadata)
+	ctxWithMeta := originalCtx
+	for k, v := range metadata {
+		ctxWithMeta = context.WithValue(ctxWithMeta, k, v)
+	}
 
 	// Act - Extract metadata from context
 	extractedMeta := meta.ExtractMetaFromContext(ctxWithMeta)
@@ -234,15 +240,121 @@ func TestRoundTrip(t *testing.T) {
 	assert.Equal(t, metadata, extractedMeta)
 }
 
+func TestShouldGetMeta(t *testing.T) {
+	tests := []struct {
+		name          string
+		ctxSetup      func() context.Context
+		key           meta.ContextKey
+		expectedValue string
+		expectError   bool
+		errorContains string
+	}{
+		{
+			name: "success - valid string value",
+			ctxSetup: func() context.Context {
+				return context.WithValue(context.Background(), meta.TraceID, "trace-xyz-123")
+			},
+			key:           meta.TraceID,
+			expectedValue: "trace-xyz-123",
+			expectError:   false,
+		},
+		{
+			name: "error - key not found",
+			ctxSetup: func() context.Context {
+				return context.Background()
+			},
+			key:           meta.ActorID,
+			expectedValue: "",
+			expectError:   true,
+			errorContains: "key not found",
+		},
+		{
+			name: "error - type mismatch (non-string value)",
+			ctxSetup: func() context.Context {
+				return context.WithValue(context.Background(), meta.ActorID, 12345)
+			},
+			key:           meta.ActorID,
+			expectedValue: "",
+			expectError:   true,
+			errorContains: "type mismatch",
+		},
+		{
+			name: "success - empty string value",
+			ctxSetup: func() context.Context {
+				return context.WithValue(context.Background(), meta.IPAddress, "")
+			},
+			key:           meta.IPAddress,
+			expectedValue: "",
+			expectError:   false,
+		},
+		{
+			name: "success - all predefined keys",
+			ctxSetup: func() context.Context {
+				ctx := context.Background()
+				ctx = context.WithValue(ctx, meta.TraceID, "trace-123")
+				ctx = context.WithValue(ctx, meta.ActorType, "user")
+				ctx = context.WithValue(ctx, meta.ActorID, "actor-456")
+				ctx = context.WithValue(ctx, meta.IPAddress, "192.168.1.1")
+				ctx = context.WithValue(ctx, meta.UserAgent, "Mozilla/5.0")
+				ctx = context.WithValue(ctx, meta.RemoteAddr, "10.0.0.1:8080")
+				ctx = context.WithValue(ctx, meta.Referer, "https://example.com")
+				ctx = context.WithValue(ctx, meta.ServiceName, "test-service")
+				ctx = context.WithValue(ctx, meta.ServiceVersion, "v1.0.0")
+				ctx = context.WithValue(ctx, meta.AcceptLanguage, "en-US")
+				ctx = context.WithValue(ctx, meta.XClientAppName, "mobile-app")
+				ctx = context.WithValue(ctx, meta.XClientAppOS, "ios")
+				ctx = context.WithValue(ctx, meta.XClientAppVersion, "2.0.0")
+				ctx = context.WithValue(ctx, meta.XTzOffset, "-0700")
+				return ctx
+			},
+			key:           meta.ServiceName,
+			expectedValue: "test-service",
+			expectError:   false,
+		},
+		{
+			name: "error - type mismatch with struct value",
+			ctxSetup: func() context.Context {
+				type customStruct struct {
+					field string
+				}
+				return context.WithValue(context.Background(), meta.Referer, customStruct{field: "value"})
+			},
+			key:           meta.Referer,
+			expectedValue: "",
+			expectError:   true,
+			errorContains: "type mismatch",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			ctx := tc.ctxSetup()
+
+			// Act
+			value, err := meta.ShouldGetMeta(ctx, tc.key)
+
+			// Assert
+			if tc.expectError {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tc.errorContains)
+				assert.Equal(t, tc.expectedValue, value)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tc.expectedValue, value)
+			}
+		})
+	}
+}
+
 func TestAllContextKeys(t *testing.T) {
 	// This test ensures all defined context keys can be properly injected and extracted
 
 	// Define a map with all predefined context keys
 	allKeys := testMeta(
 		mp(meta.TraceID, "trace-xyz"),
-		mp(meta.RequestUserID, "user-123"),
-		mp(meta.RequestUserType, "customer"),
-		mp(meta.RequestUserRole, "admin"),
+		mp(meta.ActorType, "customer"),
+		mp(meta.ActorID, "user-123"),
 		mp(meta.IPAddress, "10.0.0.1"),
 		mp(meta.UserAgent, "Mozilla/5.0"),
 		mp(meta.RemoteAddr, "10.0.0.2:8080"),
@@ -257,7 +369,10 @@ func TestAllContextKeys(t *testing.T) {
 	)
 
 	// Inject all keys into context
-	ctx := meta.InjectMetaToContext(context.Background(), allKeys)
+	ctx := context.Background()
+	for k, v := range allKeys {
+		ctx = context.WithValue(ctx, k, v)
+	}
 
 	// Extract all keys from context
 	extracted := meta.ExtractMetaFromContext(ctx)
