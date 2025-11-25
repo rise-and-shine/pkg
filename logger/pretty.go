@@ -63,12 +63,21 @@ func (e *prettyLogger) Clone() zapcore.Encoder {
 	return &prettyLogger{Encoder: e.Encoder.Clone()}
 }
 
-// newPrettyLogger creates a new pretty logger with color support and JSON indentation.
-func newPrettyLogger(cfg *zap.Config) *zap.Logger {
+// newPrettyLoggerWithSkip creates a pretty logger with specified caller skip.
+// The callerSkip parameter indicates how many stack frames to skip when determining the caller.
+func newPrettyLoggerWithSkip(cfg *zap.Config, callerSkip int) *zap.Logger {
 	enc := &prettyLogger{Encoder: zapcore.NewJSONEncoder(cfg.EncoderConfig)}
 	core := zapcore.NewCore(enc, zapcore.AddSync(os.Stdout), cfg.Level)
 	opts := buildPrettyOptions(cfg)
+	if callerSkip > 0 {
+		opts = append(opts, zap.AddCallerSkip(callerSkip))
+	}
 	return zap.New(core, opts...)
+}
+
+// newPrettyLogger creates a new pretty logger with color support and JSON indentation.
+func newPrettyLogger(cfg *zap.Config) *zap.Logger {
+	return newPrettyLoggerWithSkip(cfg, 0)
 }
 
 func buildPrettyOptions(cfg *zap.Config) []zap.Option {

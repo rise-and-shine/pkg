@@ -63,8 +63,10 @@ type logger struct {
 	*zap.SugaredLogger
 }
 
-// New creates a new Logger instance with the provided configuration.
-func New(cfg Config) (Logger, error) {
+// newWithCallerSkip creates a new Logger with the specified caller skip level.
+// The callerSkip parameter indicates how many additional stack frames to skip
+// when determining the caller location. Use callerSkip=1 for global logger wrappers.
+func newWithCallerSkip(cfg Config, callerSkip int) (Logger, error) {
 	if cfg.Disable {
 		return &logger{zap.NewNop().Sugar()}, nil
 	}
@@ -76,16 +78,21 @@ func New(cfg Config) (Logger, error) {
 
 	// Use custom development encoder for pretty mode
 	if cfg.Encoding == encPretty {
-		return &logger{newPrettyLogger(zapConfig).Sugar()}, nil
+		return &logger{newPrettyLoggerWithSkip(zapConfig, callerSkip).Sugar()}, nil
 	}
 
 	// Build the zap logger for JSON mode
-	jsonLogger, err := zapConfig.Build()
+	jsonLogger, err := zapConfig.Build(zap.AddCallerSkip(callerSkip))
 	if err != nil {
 		return nil, errx.Wrap(err)
 	}
 
 	return &logger{jsonLogger.Sugar()}, nil
+}
+
+// New creates a new Logger instance with the provided configuration.
+func New(cfg Config) (Logger, error) {
+	return newWithCallerSkip(cfg, 0)
 }
 
 func (l *logger) Warnx(err error) {
