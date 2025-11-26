@@ -11,7 +11,6 @@ const (
 	messageKey = "msg"
 	levelKey   = "level"
 	nameKey    = "logger"
-	callerKey  = "file"
 	timeKey    = "time"
 
 	encPretty  = "pretty"
@@ -54,12 +53,10 @@ func (c Config) getZapConfig() (*zap.Config, error) {
 		MessageKey:     messageKey,
 		LevelKey:       levelKey,
 		NameKey:        nameKey,
-		CallerKey:      callerKey,
 		TimeKey:        timeKey,
 		EncodeLevel:    zapcore.CapitalLevelEncoder,
 		EncodeTime:     zapcore.RFC3339TimeEncoder,
 		EncodeDuration: zapcore.StringDurationEncoder,
-		EncodeCaller:   zapcore.ShortCallerEncoder,
 		EncodeName:     zapcore.FullNameEncoder,
 	}
 

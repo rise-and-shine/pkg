@@ -8,15 +8,17 @@ import (
 func main() {
 	cfg := logger.Config{
 		Level:    "debug",
-		Encoding: "pretty",
+		Encoding: "json",
 	}
 	_ = cfg
-	// logger.SetGlobal(cfg)
+	logger.SetGlobal(cfg)
 
-	// logger, err := logger.New(cfg)
-	// if err != nil {
-	// 	panic(err)
-	// }
+	// logger := logger.Named("mainjon.main")
+
+	logger, err := logger.New(cfg)
+	if err != nil {
+		panic(err)
+	}
 
 	r := Request{
 		Username: "username",
@@ -43,9 +45,9 @@ func main() {
 		InnarMap:    nil,
 	}
 
-	logger.With("request_body", mask.StructToOrdMap(&r)).Info("requestjon")
-	logger.With("response_body", mask.StructToOrdMap(&resp)).Info("responsejon")
-	logger.With("response_bodynil", mask.StructToOrdMap(&respNil)).Info("responsejonnil")
+	logger.With("request_body", mask.StructToOrdMap(r)).Info("requestjon")
+	logger.With("response_body", mask.StructToOrdMap(resp)).Info("responsejon")
+	logger.With("response_bodynil", mask.StructToOrdMap(respNil)).Info("responsejonnil")
 
 	logger.Debug("qweqwer")
 }

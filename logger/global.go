@@ -22,8 +22,7 @@ func SetGlobal(cfg Config) {
 		// Prevent lazy initialization from happening after this
 		initOnce.Do(func() {})
 
-		// Use callerSkip=1 to account for global wrapper functions
-		logger, err := newWithCallerSkip(cfg, 1)
+		logger, err := newLogger(cfg)
 		if err != nil {
 			panic("[logger]: failed to initialize global logger: " + err.Error())
 		}
@@ -122,11 +121,10 @@ func Sync() error {
 // initDefault initializes the default logger lazily.
 func initDefault() {
 	initOnce.Do(func() {
-		// Use callerSkip=1 for global logger wrapper functions
-		defaultLogger, err := newWithCallerSkip(Config{
+		defaultLogger, err := newLogger(Config{
 			Level:    levelDebug,
 			Encoding: encPretty,
-		}, 1)
+		})
 		if err != nil {
 			panic("[logger]: failed to initialize default logger: " + err.Error())
 		}

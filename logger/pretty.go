@@ -63,15 +63,11 @@ func (e *prettyLogger) Clone() zapcore.Encoder {
 	return &prettyLogger{Encoder: e.Encoder.Clone()}
 }
 
-// newPrettyLoggerWithSkip creates a pretty logger with specified caller skip.
-// The callerSkip parameter indicates how many stack frames to skip when determining the caller.
-func newPrettyLoggerWithSkip(cfg *zap.Config, callerSkip int) *zap.Logger {
+// newPrettyLogger creates a pretty logger without caller tracking.
+func newPrettyLogger(cfg *zap.Config) *zap.Logger {
 	enc := &prettyLogger{Encoder: zapcore.NewJSONEncoder(cfg.EncoderConfig)}
 	core := zapcore.NewCore(enc, zapcore.AddSync(os.Stdout), cfg.Level)
 	opts := buildPrettyOptions(cfg)
-	if callerSkip > 0 {
-		opts = append(opts, zap.AddCallerSkip(callerSkip))
-	}
 	return zap.New(core, opts...)
 }
 
@@ -80,9 +76,7 @@ func buildPrettyOptions(cfg *zap.Config) []zap.Option {
 	if cfg.Development {
 		opts = append(opts, zap.Development())
 	}
-	if !cfg.DisableCaller {
-		opts = append(opts, zap.AddCaller())
-	}
+	// Caller tracking removed - use Named() loggers for component identification
 	if len(cfg.InitialFields) > 0 {
 		keys := make([]string, 0, len(cfg.InitialFields))
 		for k := range cfg.InitialFields {
@@ -137,7 +131,6 @@ func buildHeader(entry zapcore.Entry, payload map[string]any) string {
 	timestamp := headerTimestamp(entry)
 	level := headerLevel(entry, payload)
 	message := headerMessage(entry, payload)
-	callerInfo := resolveCaller(entry, payload)
 	emoji := levelEmoji[entry.Level]
 
 	var b strings.Builder
@@ -151,10 +144,6 @@ func buildHeader(entry zapcore.Entry, payload map[string]any) string {
 	if message != "" {
 		b.WriteByte(' ')
 		b.WriteString(styleMessage(entry.Level, message))
-	}
-	if callerInfo != "" {
-		b.WriteByte(' ')
-		b.WriteString(styleCaller("(" + callerInfo + ")"))
 	}
 	b.WriteByte('\n')
 	return b.String()
@@ -189,23 +178,11 @@ func headerMessage(entry zapcore.Entry, payload map[string]any) string {
 	return value
 }
 
-func resolveCaller(entry zapcore.Entry, payload map[string]any) string {
-	if callerVal, hasCaller := payload[callerKey]; hasCaller {
-		if callerText, okString := callerVal.(string); okString && callerText != "" {
-			return callerText
-		}
-	}
-	if entry.Caller.Defined {
-		return entry.Caller.TrimmedPath()
-	}
-	return ""
-}
-
 func filterReserved(payload map[string]any) map[string]any {
 	meta := make(map[string]any)
 	for k, v := range payload {
 		switch k {
-		case timeKey, levelKey, messageKey, callerKey:
+		case timeKey, levelKey, messageKey:
 			continue
 		default:
 			meta[k] = v
@@ -265,10 +242,6 @@ func styleLevel(level string, lvl zapcore.Level) string {
 }
 
 func styleTime(v string) string {
-	return ansiFaint + callerColor + v + ansiReset
-}
-
-func styleCaller(v string) string {
 	return ansiFaint + callerColor + v + ansiReset
 }
 
