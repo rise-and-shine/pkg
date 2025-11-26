@@ -25,26 +25,18 @@ func NewMetaInjectMW(serviceName, serviceVersion string) server.Middleware {
 			traceID := getTraceID(c.UserContext())
 
 			metaData := map[meta.ContextKey]string{
-				meta.TraceID:           traceID,
-				meta.IPAddress:         c.IP(),
-				meta.UserAgent:         c.Get(fiber.HeaderUserAgent),
-				meta.RemoteAddr:        c.Context().RemoteAddr().String(),
-				meta.Referer:           c.Get(fiber.HeaderReferer),
-				meta.ServiceName:       serviceName,
-				meta.ServiceVersion:    serviceVersion,
-				meta.AcceptLanguage:    c.Get(string(meta.AcceptLanguage)),
-				meta.XClientAppName:    c.Get(string(meta.XClientAppName)),
-				meta.XClientAppOS:      c.Get(string(meta.XClientAppOS)),
-				meta.XClientAppVersion: c.Get(string(meta.XClientAppVersion)),
-				meta.XTzOffset:         c.Get(string(meta.XTzOffset)),
-
-				// missing keys. Those are will be set by authentication middlewares
-				meta.RequestUserID:   "",
-				meta.RequestUserType: "",
-				meta.RequestUserRole: "",
+				meta.TraceID:        traceID,
+				meta.ServiceName:    serviceName,
+				meta.ServiceVersion: serviceVersion,
+				meta.AcceptLanguage: c.Get("accept-language"),
+				meta.XTzOffset:      c.Get("x-tz-offset"),
 			}
 
-			ctx := meta.InjectMetaToContext(c.UserContext(), metaData)
+			ctx := c.UserContext()
+			for k, v := range metaData {
+				ctx = context.WithValue(ctx, k, v)
+			}
+
 			c.SetUserContext(ctx)
 
 			return c.Next()

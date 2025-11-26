@@ -55,7 +55,7 @@ func TestInjectMetaToContext(t *testing.T) {
 			metaData: testMeta(
 				mp(meta.TraceID, "trace-123"),
 				mp(meta.ActorID, "user-456"),
-				mp(meta.IPAddress, "192.168.1.1"),
+				mp(meta.ActorType, "customer"),
 				mp(meta.ServiceName, "auth-service"),
 				mp(meta.ServiceVersion, "v1.0.0"),
 			),
@@ -68,7 +68,7 @@ func TestInjectMetaToContext(t *testing.T) {
 			metaData: testMeta(
 				mp(meta.TraceID, "trace-123"),
 				mp(meta.ActorID, ""),
-				mp(meta.IPAddress, "192.168.1.1"),
+				mp(meta.ServiceName, "auth-service"),
 			),
 			keyToVerify: meta.ActorID,
 			nilValue:    true,
@@ -142,14 +142,14 @@ func TestExtractMetaFromContext(t *testing.T) {
 				ctx := context.Background()
 				ctx = context.WithValue(ctx, meta.TraceID, "trace-123")
 				ctx = context.WithValue(ctx, meta.ActorID, "user-456")
-				ctx = context.WithValue(ctx, meta.IPAddress, "192.168.1.1")
+				ctx = context.WithValue(ctx, meta.ActorType, "customer")
 				ctx = context.WithValue(ctx, meta.ServiceName, "auth-service")
 				return ctx
 			},
 			expected: testMeta(
 				mp(meta.TraceID, "trace-123"),
 				mp(meta.ActorID, "user-456"),
-				mp(meta.IPAddress, "192.168.1.1"),
+				mp(meta.ActorType, "customer"),
 				mp(meta.ServiceName, "auth-service"),
 			),
 		},
@@ -158,11 +158,11 @@ func TestExtractMetaFromContext(t *testing.T) {
 			ctxSetup: func() context.Context {
 				ctx := context.Background()
 				ctx = context.WithValue(ctx, meta.TraceID, 12345) // Not a string
-				ctx = context.WithValue(ctx, meta.IPAddress, "192.168.1.1")
+				ctx = context.WithValue(ctx, meta.ServiceName, "auth-service")
 				return ctx
 			},
 			expected: testMeta(
-				mp(meta.IPAddress, "192.168.1.1"),
+				mp(meta.ServiceName, "auth-service"),
 			),
 		},
 		{
@@ -219,12 +219,12 @@ func TestRoundTrip(t *testing.T) {
 	originalCtx := context.Background()
 	metadata := testMeta(
 		mp(meta.TraceID, "trace-123"),
-		mp(meta.IPAddress, "192.168.1.1"),
+		mp(meta.ActorType, "user"),
+		mp(meta.ActorID, "actor-123"),
 		mp(meta.ServiceName, "auth-service"),
 		mp(meta.ServiceVersion, "v1.0.0"),
-		mp(meta.XClientAppName, "web-client"),
-		mp(meta.XClientAppOS, "macos"),
-		mp(meta.XClientAppVersion, "2.1.0"),
+		mp(meta.AcceptLanguage, "en-US"),
+		mp(meta.XTzOffset, "-0700"),
 	)
 
 	// Act - Inject metadata into context
@@ -281,9 +281,9 @@ func TestShouldGetMeta(t *testing.T) {
 		{
 			name: "success - empty string value",
 			ctxSetup: func() context.Context {
-				return context.WithValue(context.Background(), meta.IPAddress, "")
+				return context.WithValue(context.Background(), meta.ActorType, "")
 			},
-			key:           meta.IPAddress,
+			key:           meta.ActorType,
 			expectedValue: "",
 			expectError:   false,
 		},
@@ -294,16 +294,9 @@ func TestShouldGetMeta(t *testing.T) {
 				ctx = context.WithValue(ctx, meta.TraceID, "trace-123")
 				ctx = context.WithValue(ctx, meta.ActorType, "user")
 				ctx = context.WithValue(ctx, meta.ActorID, "actor-456")
-				ctx = context.WithValue(ctx, meta.IPAddress, "192.168.1.1")
-				ctx = context.WithValue(ctx, meta.UserAgent, "Mozilla/5.0")
-				ctx = context.WithValue(ctx, meta.RemoteAddr, "10.0.0.1:8080")
-				ctx = context.WithValue(ctx, meta.Referer, "https://example.com")
 				ctx = context.WithValue(ctx, meta.ServiceName, "test-service")
 				ctx = context.WithValue(ctx, meta.ServiceVersion, "v1.0.0")
 				ctx = context.WithValue(ctx, meta.AcceptLanguage, "en-US")
-				ctx = context.WithValue(ctx, meta.XClientAppName, "mobile-app")
-				ctx = context.WithValue(ctx, meta.XClientAppOS, "ios")
-				ctx = context.WithValue(ctx, meta.XClientAppVersion, "2.0.0")
 				ctx = context.WithValue(ctx, meta.XTzOffset, "-0700")
 				return ctx
 			},
@@ -317,9 +310,9 @@ func TestShouldGetMeta(t *testing.T) {
 				type customStruct struct {
 					field string
 				}
-				return context.WithValue(context.Background(), meta.Referer, customStruct{field: "value"})
+				return context.WithValue(context.Background(), meta.ServiceName, customStruct{field: "value"})
 			},
-			key:           meta.Referer,
+			key:           meta.ServiceName,
 			expectedValue: "",
 			expectError:   true,
 			errorContains: "type mismatch",
@@ -355,16 +348,9 @@ func TestAllContextKeys(t *testing.T) {
 		mp(meta.TraceID, "trace-xyz"),
 		mp(meta.ActorType, "customer"),
 		mp(meta.ActorID, "user-123"),
-		mp(meta.IPAddress, "10.0.0.1"),
-		mp(meta.UserAgent, "Mozilla/5.0"),
-		mp(meta.RemoteAddr, "10.0.0.2:8080"),
-		mp(meta.Referer, "https://example.com"),
 		mp(meta.ServiceName, "api-gateway"),
 		mp(meta.ServiceVersion, "v2.3.4"),
 		mp(meta.AcceptLanguage, "en-US"),
-		mp(meta.XClientAppName, "mobile-app"),
-		mp(meta.XClientAppOS, "ios"),
-		mp(meta.XClientAppVersion, "3.0.1"),
 		mp(meta.XTzOffset, "-0700"),
 	)
 

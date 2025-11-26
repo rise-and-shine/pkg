@@ -20,18 +20,6 @@ const (
 	// ActorID represents the unique identifier of the actor.
 	ActorID ContextKey = "actor_id"
 
-	// IPAddress contains the client's IP address.
-	IPAddress ContextKey = "ip_address"
-
-	// UserAgent contains the user agent string from the request.
-	UserAgent ContextKey = "user_agent"
-
-	// RemoteAddr contains the network address that sent the request.
-	RemoteAddr ContextKey = "remote_addr"
-
-	// Referer contains the address of the previous web page from which a link was followed.
-	Referer ContextKey = "referer"
-
 	// ServiceName identifies the name of current running service.
 	ServiceName ContextKey = "service_name"
 
@@ -40,15 +28,6 @@ const (
 
 	// AcceptLanguage indicates the natural language and locale that the client prefers.
 	AcceptLanguage ContextKey = "accept-language"
-
-	// XClientAppName identifies the client application name.
-	XClientAppName ContextKey = "x-client-app-name"
-
-	// XClientAppOS identifies the operating system of the client.
-	XClientAppOS ContextKey = "x-client-app-os"
-
-	// XClientAppVersion indicates the version of the client application.
-	XClientAppVersion ContextKey = "x-client-app-version"
 
 	// XTzOffset contains the timezone offset from the client.
 	XTzOffset ContextKey = "x-tz-offset"
@@ -63,16 +42,9 @@ func ExtractMetaFromContext(ctx context.Context) map[ContextKey]string {
 		TraceID,
 		ActorType,
 		ActorID,
-		IPAddress,
-		UserAgent,
-		RemoteAddr,
-		Referer,
 		ServiceName,
 		ServiceVersion,
 		AcceptLanguage,
-		XClientAppName,
-		XClientAppOS,
-		XClientAppVersion,
 		XTzOffset,
 	} {
 		if v, ok := ctx.Value(k).(string); ok && v != "" {

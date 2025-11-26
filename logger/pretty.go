@@ -75,11 +75,6 @@ func newPrettyLoggerWithSkip(cfg *zap.Config, callerSkip int) *zap.Logger {
 	return zap.New(core, opts...)
 }
 
-// newPrettyLogger creates a new pretty logger with color support and JSON indentation.
-func newPrettyLogger(cfg *zap.Config) *zap.Logger {
-	return newPrettyLoggerWithSkip(cfg, 0)
-}
-
 func buildPrettyOptions(cfg *zap.Config) []zap.Option {
 	opts := []zap.Option{zap.ErrorOutput(zapcore.AddSync(os.Stderr))}
 	if cfg.Development {
