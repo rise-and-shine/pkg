@@ -8,7 +8,7 @@ import (
 func main() {
 	cfg := logger.Config{
 		Level:    "debug",
-		Encoding: "json",
+		Encoding: "pretty",
 	}
 	_ = cfg
 	logger.SetGlobal(cfg)

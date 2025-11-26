@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	orderedmap "github.com/wk8/go-ordered-map/v2"
 	"go.uber.org/zap"
 	"go.uber.org/zap/buffer"
 	"go.uber.org/zap/zapcore"
@@ -92,6 +93,84 @@ func buildPrettyOptions(cfg *zap.Config) []zap.Option {
 	return opts
 }
 
+// unmarshalOrdered unmarshals JSON into ordered maps recursively.
+func unmarshalOrdered(data []byte) (*orderedmap.OrderedMap[string, any], error) {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+
+	token, err := decoder.Token()
+	if err != nil {
+		return nil, err
+	}
+
+	delim, ok := token.(json.Delim)
+	if !ok || delim != '{' {
+		return nil, err
+	}
+
+	return decodeObject(decoder)
+}
+
+func decodeObject(decoder *json.Decoder) (*orderedmap.OrderedMap[string, any], error) {
+	om := orderedmap.New[string, any]()
+
+	for decoder.More() {
+		keyToken, err := decoder.Token()
+		if err != nil {
+			return nil, err
+		}
+		key := keyToken.(string)
+
+		value, err := decodeValue(decoder)
+		if err != nil {
+			return nil, err
+		}
+
+		om.Set(key, value)
+	}
+
+	if _, err := decoder.Token(); err != nil {
+		return nil, err
+	}
+
+	return om, nil
+}
+
+func decodeValue(decoder *json.Decoder) (any, error) {
+	token, err := decoder.Token()
+	if err != nil {
+		return nil, err
+	}
+
+	if delim, ok := token.(json.Delim); ok {
+		switch delim {
+		case '{':
+			return decodeObject(decoder)
+		case '[':
+			return decodeArray(decoder)
+		}
+	}
+
+	return token, nil
+}
+
+func decodeArray(decoder *json.Decoder) ([]any, error) {
+	var arr []any
+	for decoder.More() {
+		value, err := decodeValue(decoder)
+		if err != nil {
+			return nil, err
+		}
+		arr = append(arr, value)
+	}
+
+	if _, err := decoder.Token(); err != nil {
+		return nil, err
+	}
+
+	return arr, nil
+}
+
 // EncodeEntry formats a log entry with pretty printing and colorization.
 func (e *prettyLogger) EncodeEntry(entry zapcore.Entry, fields []zapcore.Field) (*buffer.Buffer, error) {
 	jsonBuf, err := e.Encoder.EncodeEntry(entry, fields)
@@ -103,8 +182,8 @@ func (e *prettyLogger) EncodeEntry(entry zapcore.Entry, fields []zapcore.Field) 
 	jsonBuf.Reset()
 
 	trimmed := bytes.TrimSpace(raw)
-	var payload map[string]any
-	if unmarshalErr := json.Unmarshal(trimmed, &payload); unmarshalErr != nil {
+	payload, unmarshalErr := unmarshalOrdered(trimmed)
+	if unmarshalErr != nil {
 		if writeErr := writeBytes(jsonBuf, raw); writeErr != nil {
 			return nil, writeErr
 		}
@@ -127,7 +206,7 @@ func (e *prettyLogger) EncodeEntry(entry zapcore.Entry, fields []zapcore.Field) 
 	return jsonBuf, nil
 }
 
-func buildHeader(entry zapcore.Entry, payload map[string]any) string {
+func buildHeader(entry zapcore.Entry, payload *orderedmap.OrderedMap[string, any]) string {
 	timestamp := headerTimestamp(entry)
 	level := headerLevel(entry, payload)
 	message := headerMessage(entry, payload)
@@ -158,9 +237,9 @@ func headerTimestamp(entry zapcore.Entry) string {
 	return value
 }
 
-func headerLevel(entry zapcore.Entry, payload map[string]any) string {
+func headerLevel(entry zapcore.Entry, payload *orderedmap.OrderedMap[string, any]) string {
 	value := strings.ToUpper(entry.Level.String())
-	if lvlVal, hasLevel := payload[levelKey]; hasLevel {
+	if lvlVal, hasLevel := payload.Get(levelKey); hasLevel {
 		if lvlText, okString := lvlVal.(string); okString && lvlText != "" {
 			value = strings.ToUpper(lvlText)
 		}
@@ -168,9 +247,9 @@ func headerLevel(entry zapcore.Entry, payload map[string]any) string {
 	return value
 }
 
-func headerMessage(entry zapcore.Entry, payload map[string]any) string {
+func headerMessage(entry zapcore.Entry, payload *orderedmap.OrderedMap[string, any]) string {
 	value := entry.Message
-	if msgVal, hasMessage := payload[messageKey]; hasMessage {
+	if msgVal, hasMessage := payload.Get(messageKey); hasMessage {
 		if msgText, okString := msgVal.(string); okString {
 			value = msgText
 		}
@@ -178,31 +257,72 @@ func headerMessage(entry zapcore.Entry, payload map[string]any) string {
 	return value
 }
 
-func filterReserved(payload map[string]any) map[string]any {
-	meta := make(map[string]any)
-	for k, v := range payload {
-		switch k {
+func filterReserved(payload *orderedmap.OrderedMap[string, any]) *orderedmap.OrderedMap[string, any] {
+	meta := orderedmap.New[string, any]()
+	for pair := payload.Oldest(); pair != nil; pair = pair.Next() {
+		switch pair.Key {
 		case timeKey, levelKey, messageKey:
 			continue
 		default:
-			meta[k] = v
+			meta.Set(pair.Key, pair.Value)
 		}
 	}
-	if _, ok := meta[nameKey]; !ok {
-		if nameVal, has := payload[nameKey]; has {
-			meta[nameKey] = nameVal
+	if _, ok := meta.Get(nameKey); !ok {
+		if nameVal, has := payload.Get(nameKey); has {
+			meta.Set(nameKey, nameVal)
 		}
 	}
 	return meta
 }
 
-func writeMetadata(buf *buffer.Buffer, meta map[string]any, level zapcore.Level) error {
-	if len(meta) == 0 {
+func marshalOrderedIndent(value any, prefix, indent string) ([]byte, error) {
+	om, isOrderedMap := value.(*orderedmap.OrderedMap[string, any])
+	if !isOrderedMap {
+		return json.Marshal(value)
+	}
+
+	if om.Len() == 0 {
+		return []byte("{}"), nil
+	}
+
+	var buf bytes.Buffer
+	buf.WriteString("{\n")
+
+	i := 0
+	for pair := om.Oldest(); pair != nil; pair = pair.Next() {
+		if i > 0 {
+			buf.WriteString(",\n")
+		}
+
+		buf.WriteString(prefix + indent)
+
+		keyBytes, err := json.Marshal(pair.Key)
+		if err != nil {
+			return nil, err
+		}
+		buf.Write(keyBytes)
+		buf.WriteString(": ")
+
+		valueBytes, err := marshalOrderedIndent(pair.Value, prefix+indent, indent)
+		if err != nil {
+			return nil, err
+		}
+		buf.Write(valueBytes)
+
+		i++
+	}
+
+	buf.WriteString("\n" + prefix + "}")
+	return buf.Bytes(), nil
+}
+
+func writeMetadata(buf *buffer.Buffer, meta *orderedmap.OrderedMap[string, any], level zapcore.Level) error {
+	if meta.Len() == 0 {
 		return nil
 	}
 
 	keyColor, valColor := metaColours(level)
-	pretty, err := json.MarshalIndent(meta, "", "  ")
+	pretty, err := marshalOrderedIndent(meta, "", "  ")
 	if err != nil {
 		if fallbackWriteErr := writeString(buf, ansiFaint+valColor+metaFallback(meta)+ansiReset); fallbackWriteErr != nil {
 			return fallbackWriteErr
@@ -266,7 +386,7 @@ func messageColour(level zapcore.Level) string {
 	}
 }
 
-func metaFallback(meta map[string]any) string {
+func metaFallback(meta *orderedmap.OrderedMap[string, any]) string {
 	raw, err := json.Marshal(meta)
 	if err != nil {
 		return "{}"
