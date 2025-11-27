@@ -31,8 +31,8 @@ func MakeFromStr(sortString string, allowedFields ...string) SortOpts {
 	}
 
 	var options []Opt
-	pairs := strings.Split(sortString, ",")
-	for _, pair := range pairs {
+	pairs := strings.SplitSeq(sortString, ",")
+	for pair := range pairs {
 		parts := strings.Split(pair, ":")
 		if len(parts) != expectedPartsCount {
 			continue
