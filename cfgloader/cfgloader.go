@@ -12,6 +12,7 @@ import (
 	"github.com/creasty/defaults"
 	"github.com/go-playground/validator/v10"
 	"github.com/joho/godotenv"
+	"github.com/rise-and-shine/pkg/mask"
 	"gopkg.in/yaml.v3"
 )
 
@@ -157,4 +158,15 @@ func validateConfig(config any, env string) {
 		)
 		os.Exit(1)
 	}
+}
+
+func printConfig(config any) {
+	masked := mask.StructToOrdMap(config)
+
+	out, err := yaml.Marshal(masked)
+	if err != nil {
+		slog.Error("[cfgloader]: failed to marshal config", "error", err.Error())
+		os.Exit(1)
+	}
+	fmt.Printf("[cfgloader]: loaded config\n%s\n", string(out)) //nolint:forbidigo // this is exceptional
 }

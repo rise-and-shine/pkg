@@ -77,7 +77,7 @@ func TestStructToOrdMap_StringFieldZeroValue(t *testing.T) {
 
 	expected := newOrderedMap(
 		"Username", "john",
-		"Password", "***masked-string***",
+		"Password", "", // Empty values are not masked
 	)
 	assertOrderedMapEqual(t, expected, result)
 }
@@ -142,7 +142,7 @@ func TestStructToOrdMap_IntFieldZeroValue(t *testing.T) {
 
 	expected := newOrderedMap(
 		"Port", 8080,
-		"Secret", "***masked-int***",
+		"Secret", 0, // Zero values are not masked
 	)
 	assertOrderedMapEqual(t, expected, result)
 }
@@ -206,7 +206,7 @@ func TestStructToOrdMap_BoolFieldZeroValue(t *testing.T) {
 
 	expected := newOrderedMap(
 		"Enabled", true,
-		"Secret", "***masked-bool***",
+		"Secret", false, // Zero values are not masked
 	)
 	assertOrderedMapEqual(t, expected, result)
 }
@@ -413,7 +413,7 @@ func TestStructToOrdMap_NoMaskTag(t *testing.T) {
 func TestStructToOrdMap_UnexportedFields(t *testing.T) {
 	type Request struct {
 		Public  string
-		private string
+		private string //nolint:unused // Intentionally unexported to test field filtering
 	}
 
 	req := Request{Public: "pub"}
@@ -770,6 +770,235 @@ func TestStructToOrdMap_NilMapFieldMasked(t *testing.T) {
 
 	expected := newOrderedMap(
 		"Config", nil,
+	)
+	assertOrderedMapEqual(t, expected, result)
+}
+
+func TestStructToOrdMap_JsonTag(t *testing.T) {
+	type Request struct {
+		Username string `json:"username"`
+		Password string `json:"password" mask:"true"`
+	}
+
+	req := Request{Username: "john", Password: "secret"}
+	result := mask.StructToOrdMap(req)
+
+	expected := newOrderedMap(
+		"username", "john",
+		"password", "***masked-string***",
+	)
+	assertOrderedMapEqual(t, expected, result)
+}
+
+func TestStructToOrdMap_JsonTagWithOmitempty(t *testing.T) {
+	type Request struct {
+		UserID int `json:"user_id,omitempty"`
+	}
+
+	req := Request{UserID: 123}
+	result := mask.StructToOrdMap(req)
+
+	expected := newOrderedMap(
+		"user_id", 123,
+	)
+	assertOrderedMapEqual(t, expected, result)
+}
+
+func TestStructToOrdMap_JsonTagSkip(t *testing.T) {
+	type Request struct {
+		Public  string `json:"public"`
+		Private string `json:"-"`
+	}
+
+	req := Request{Public: "visible", Private: "hidden"}
+	result := mask.StructToOrdMap(req)
+
+	expected := newOrderedMap(
+		"public", "visible",
+	)
+	assertOrderedMapEqual(t, expected, result)
+}
+
+func TestStructToOrdMap_YamlTag(t *testing.T) {
+	type Config struct {
+		LogLevel string `yaml:"log_level"`
+		Secret   string `yaml:"secret"    mask:"true"`
+	}
+
+	cfg := Config{LogLevel: "debug", Secret: "key123"}
+	result := mask.StructToOrdMap(cfg)
+
+	expected := newOrderedMap(
+		"log_level", "debug",
+		"secret", "***masked-string***",
+	)
+	assertOrderedMapEqual(t, expected, result)
+}
+
+func TestStructToOrdMap_YamlTagSkip(t *testing.T) {
+	type Config struct {
+		Public  string `yaml:"public"`
+		Private string `yaml:"-"`
+	}
+
+	cfg := Config{Public: "visible", Private: "hidden"}
+	result := mask.StructToOrdMap(cfg)
+
+	expected := newOrderedMap(
+		"public", "visible",
+	)
+	assertOrderedMapEqual(t, expected, result)
+}
+
+func TestStructToOrdMap_JsonPriorityOverYaml(t *testing.T) {
+	type Config struct {
+		Username string `json:"user_name" yaml:"username"`
+		Password string `json:"pass"      yaml:"password" mask:"true"`
+	}
+
+	cfg := Config{Username: "john", Password: "secret"}
+	result := mask.StructToOrdMap(cfg)
+
+	// Should use json tag names, not yaml
+	expected := newOrderedMap(
+		"user_name", "john",
+		"pass", "***masked-string***",
+	)
+	assertOrderedMapEqual(t, expected, result)
+}
+
+func TestStructToOrdMap_NoTagFallback(t *testing.T) {
+	type Request struct {
+		Username string
+		Password string `mask:"true"`
+	}
+
+	req := Request{Username: "john", Password: "secret"}
+	result := mask.StructToOrdMap(req)
+
+	// Should use struct field names (current behavior)
+	expected := newOrderedMap(
+		"Username", "john",
+		"Password", "***masked-string***",
+	)
+	assertOrderedMapEqual(t, expected, result)
+}
+
+func TestStructToOrdMap_NestedStructWithJsonTags(t *testing.T) {
+	type Credentials struct {
+		Username string `json:"username"`
+		APIKey   string `json:"api_key"  mask:"true"`
+	}
+	type Request struct {
+		Name  string      `json:"name"`
+		Creds Credentials `json:"credentials"`
+	}
+
+	req := Request{
+		Name:  "test",
+		Creds: Credentials{Username: "admin", APIKey: "sk-12345"},
+	}
+	result := mask.StructToOrdMap(req)
+
+	// Should be credentials.username, not Creds.Username
+	expected := newOrderedMap(
+		"name", "test",
+		"credentials.username", "admin",
+		"credentials.api_key", "***masked-string***",
+	)
+	assertOrderedMapEqual(t, expected, result)
+}
+
+func TestStructToOrdMap_DeeplyNestedWithTags(t *testing.T) {
+	type Level3 struct {
+		Secret string `json:"secret" mask:"true"`
+	}
+	type Level2 struct {
+		Data Level3 `json:"data"`
+	}
+	type Level1 struct {
+		Info Level2 `json:"info"`
+	}
+
+	req := Level1{Info: Level2{Data: Level3{Secret: "deep"}}}
+	result := mask.StructToOrdMap(req)
+
+	// Should be info.data.secret, not Info.Data.Secret
+	expected := newOrderedMap(
+		"info.data.secret", "***masked-string***",
+	)
+	assertOrderedMapEqual(t, expected, result)
+}
+
+func TestStructToOrdMap_PointerToStructWithJsonTags(t *testing.T) {
+	type Credentials struct {
+		Token string `json:"token" mask:"true"`
+	}
+	type Request struct {
+		Name  string       `json:"name"`
+		Creds *Credentials `json:"creds"`
+	}
+
+	req := Request{Name: "test", Creds: &Credentials{Token: "abc"}}
+	result := mask.StructToOrdMap(req)
+
+	expected := newOrderedMap(
+		"name", "test",
+		"creds.token", "***masked-string***",
+	)
+	assertOrderedMapEqual(t, expected, result)
+}
+
+func TestStructToOrdMap_MixedTagsAndNoTags(t *testing.T) {
+	type Request struct {
+		ID       int    `json:"id"`
+		Username string // no tag
+		Email    string `json:"email"`
+	}
+
+	req := Request{ID: 1, Username: "john", Email: "john@example.com"}
+	result := mask.StructToOrdMap(req)
+
+	expected := newOrderedMap(
+		"id", 1,
+		"Username", "john", // Falls back to struct name
+		"email", "john@example.com",
+	)
+	assertOrderedMapEqual(t, expected, result)
+}
+
+func TestStructToOrdMap_EmptyJsonTag(t *testing.T) {
+	type Request struct {
+		Field1 string `json:"" yaml:"field_one"`
+		Field2 string `json:""`
+	}
+
+	req := Request{Field1: "a", Field2: "b"}
+	result := mask.StructToOrdMap(req)
+
+	expected := newOrderedMap(
+		"field_one", "a", // Falls back to yaml
+		"Field2", "b", // Falls back to struct name
+	)
+	assertOrderedMapEqual(t, expected, result)
+}
+
+func TestStructToOrdMap_NestedStructMaskedWithJsonTag(t *testing.T) {
+	type Secret struct {
+		Value string `json:"value"`
+	}
+	type Request struct {
+		Name string `json:"name"`
+		Data Secret `json:"data" mask:"true"`
+	}
+
+	req := Request{Name: "test", Data: Secret{Value: "hidden"}}
+	result := mask.StructToOrdMap(req)
+
+	// data should be masked as a whole
+	expected := newOrderedMap(
+		"name", "test",
+		"data", "***masked-struct***",
 	)
 	assertOrderedMapEqual(t, expected, result)
 }
