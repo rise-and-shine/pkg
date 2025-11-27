@@ -96,9 +96,10 @@ func (c *Consumer) handlerWithMetaInjection(next HandleFunc) HandleFunc {
 			meta.ServiceName:    c.serviceName,
 			meta.ServiceVersion: c.serviceVersion,
 		}
+		_ = metaData
 
 		// add meta to context for downstream handlers
-		ctx = meta.InjectMetaToContext(ctx, metaData)
+		// ctx = meta.InjectMetaToContext(ctx, metaData)
 
 		return next(ctx, msg)
 	}

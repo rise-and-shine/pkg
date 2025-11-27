@@ -31,8 +31,9 @@ func (cmd *MetaInjectCommandWrapper[I, R]) Execute(ctx context.Context, input I)
 		meta.ServiceVersion: cmd.serviceVersion,
 	}
 
+	_ = metadata
 	// add meta to context for downstream chain
-	ctx = meta.InjectMetaToContext(ctx, metadata)
+	// ctx = meta.InjectMetaToContext(ctx, metadata)
 
 	// Call the next command in the chain
 	return cmd.next.Execute(ctx, input)

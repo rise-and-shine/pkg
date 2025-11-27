@@ -2,11 +2,11 @@
 package forward
 
 import (
-	"go-enterprise-blueprint/pkg/ucdef"
 	"reflect"
 
 	"github.com/code19m/errx"
 	"github.com/gofiber/fiber/v2"
+	"github.com/rise-and-shine/pkg/ucdef"
 	"github.com/rise-and-shine/pkg/val"
 )
 

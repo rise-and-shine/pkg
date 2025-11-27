@@ -12,7 +12,6 @@ import (
 	"github.com/rise-and-shine/pkg/http/server"
 	"github.com/rise-and-shine/pkg/logger"
 	"github.com/rise-and-shine/pkg/meta"
-	"github.com/spf13/cast"
 )
 
 const (
@@ -55,9 +54,9 @@ func NewAlertingMW(logger logger.Logger, provider alert.Provider) server.Middlew
 			}
 
 			// get user data from locals
-			details["request_user_id"] = cast.ToString(c.Locals(meta.RequestUserID))
-			details["request_user_type"] = cast.ToString(c.Locals(meta.RequestUserType))
-			details["request_user_role"] = cast.ToString(c.Locals(meta.RequestUserRole))
+			// details["request_user_id"] = cast.ToString(c.Locals(meta.RequestUserID))
+			// details["request_user_type"] = cast.ToString(c.Locals(meta.RequestUserType))
+			// details["request_user_role"] = cast.ToString(c.Locals(meta.RequestUserRole))
 
 			newCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), alertSendTimeout)
 
