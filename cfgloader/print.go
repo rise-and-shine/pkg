@@ -7,18 +7,19 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/rise-and-shine/pkg/mask"
 	"gopkg.in/yaml.v3"
 )
 
 func printConfig(config any) {
-	masked := maskStruct(config)
+	masked := mask.StructToOrdMap(config)
 
 	out, err := yaml.Marshal(masked)
 	if err != nil {
 		slog.Error("[cfgloader]: failed to marshal config", "error", err.Error())
 		os.Exit(1)
 	}
-	fmt.Printf("[cfgloader]: loaded config\n%s\n", string(out)) //nolint:forbidigo // print config to stdout
+	fmt.Printf("[cfgloader]: loaded config\n%s\n", string(out)) //nolint:forbidigo // this is exceptional
 }
 
 func maskStruct(cfg any) any {

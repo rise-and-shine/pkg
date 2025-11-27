@@ -100,16 +100,13 @@ func maskValue(val reflect.Value) any {
 		}
 	}
 
-	// Don't mask zero values - removed IsZero check
-	// Zero values will get their masked string representations
-
 	return maskByKind(val)
 }
 
 func maskByKind(val reflect.Value) any {
 	switch val.Kind() {
 	case reflect.String:
-		return strings.Repeat("*", val.Len())
+		return "***masked-string***"
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		return "***masked-int***"
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:

@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/rise-and-shine/pkg/cfgloader"
 	"github.com/rise-and-shine/pkg/logger"
 	"github.com/rise-and-shine/pkg/mask"
 	"github.com/rise-and-shine/pkg/pg"
@@ -11,7 +12,21 @@ import (
 	"github.com/uptrace/bun"
 )
 
+type Config struct {
+	Username string `json:"username" yaml:"username"`
+	Password string `json:"password" yaml:"password" mask:"true"`
+
+	SecretObject struct {
+		Objer1 string
+		Objer2 bool
+	} `yaml:"secret_object" mask:"true"`
+}
+
 func main() {
+	c := cfgloader.MustLoad[Config]()
+
+	logger.With("config", mask.StructToOrdMap(c)).Info("loaded config:")
+
 	cfg := logger.Config{
 		Level:    "debug",
 		Encoding: "pretty",
@@ -99,8 +114,8 @@ func main() {
 }
 
 type Request struct {
-	Username string
-	Password string `mask:"true"`
+	Username string `json:"username"`
+	Password string `json:"password" mask:"true"`
 }
 
 type Response struct {
@@ -115,8 +130,8 @@ type Response struct {
 }
 
 type User struct {
-	ID           int32
-	Email        string
+	ID           int32  `json:"id"    bun:"id,pk,autoincrement"`
+	Email        string `json:"email" bun:"email,notnull"`
 	Username     string
 	PasswordHash string
 	Role         string

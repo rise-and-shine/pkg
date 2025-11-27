@@ -61,7 +61,7 @@ func TestStructToOrdMap_StringField(t *testing.T) {
 
 	expected := newOrderedMap(
 		"Username", "john",
-		"Password", "*********",
+		"Password", "***masked-string***",
 	)
 	assertOrderedMapEqual(t, expected, result)
 }
@@ -77,7 +77,7 @@ func TestStructToOrdMap_StringFieldZeroValue(t *testing.T) {
 
 	expected := newOrderedMap(
 		"Username", "john",
-		"Password", "",
+		"Password", "***masked-string***",
 	)
 	assertOrderedMapEqual(t, expected, result)
 }
@@ -94,7 +94,7 @@ func TestStructToOrdMap_PointerToString(t *testing.T) {
 
 	expected := newOrderedMap(
 		"Username", "john",
-		"Token", "********",
+		"Token", "***masked-string***",
 	)
 	assertOrderedMapEqual(t, expected, result)
 }
@@ -230,7 +230,7 @@ func TestStructToOrdMap_NestedStruct(t *testing.T) {
 	expected := newOrderedMap(
 		"Name", "test",
 		"Creds.Username", "admin",
-		"Creds.APIKey", "********",
+		"Creds.APIKey", "***masked-string***",
 	)
 	assertOrderedMapEqual(t, expected, result)
 }
@@ -268,7 +268,7 @@ func TestStructToOrdMap_PointerToStruct(t *testing.T) {
 
 	expected := newOrderedMap(
 		"Name", "test",
-		"Creds.Token", "***",
+		"Creds.Token", "***masked-string***",
 	)
 	assertOrderedMapEqual(t, expected, result)
 }
@@ -371,7 +371,7 @@ func TestStructToOrdMap_PointerInput(t *testing.T) {
 
 	expected := newOrderedMap(
 		"Username", "john",
-		"Password", "******",
+		"Password", "***masked-string***",
 	)
 	assertOrderedMapEqual(t, expected, result)
 }
@@ -387,9 +387,9 @@ func TestStructToOrdMap_TagCaseInsensitive(t *testing.T) {
 	result := mask.StructToOrdMap(req)
 
 	expected := newOrderedMap(
-		"A", "***",
-		"B", "***",
-		"C", "***",
+		"A", "***masked-string***",
+		"B", "***masked-string***",
+		"C", "***masked-string***",
 	)
 	assertOrderedMapEqual(t, expected, result)
 }
@@ -440,7 +440,7 @@ func TestStructToOrdMap_DeeplyNested(t *testing.T) {
 	result := mask.StructToOrdMap(req)
 
 	expected := newOrderedMap(
-		"Info.Data.Secret", "****",
+		"Info.Data.Secret", "***masked-string***",
 	)
 	assertOrderedMapEqual(t, expected, result)
 }
@@ -465,7 +465,7 @@ func TestStructToOrdMap_MixedTypes(t *testing.T) {
 
 	expected := newOrderedMap(
 		"Name", "john",
-		"Password", "******",
+		"Password", "***masked-string***",
 		"Age", "***masked-int***",
 		"Rate", "***masked-float***",
 		"Active", "***masked-bool***",
@@ -529,7 +529,7 @@ func TestStructToOrdMap_NestedPointerChain(t *testing.T) {
 	result := mask.StructToOrdMap(req)
 
 	expected := newOrderedMap(
-		"Middle.Inner.Value", "******",
+		"Middle.Inner.Value", "***masked-string***",
 	)
 	assertOrderedMapEqual(t, expected, result)
 }
@@ -553,7 +553,7 @@ func TestStructToOrdMap_MultipleNestedStructs(t *testing.T) {
 	result := mask.StructToOrdMap(req)
 
 	expected := newOrderedMap(
-		"Auth.Token", "******",
+		"Auth.Token", "***masked-string***",
 		"Meta.TraceID", "trace-1",
 	)
 	assertOrderedMapEqual(t, expected, result)
