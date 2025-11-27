@@ -65,14 +65,14 @@ func MustLoad[T any]() T {
 
 	validateConfig(&config, env)
 
-	printConfig(&config)
+	printConfig(&config, env)
 
 	return config
 }
 
 func ensureNotPointer(config any) {
-	if reflect.ValueOf(config).Kind() == reflect.Ptr {
-		slog.Error("[cfgloader]: arg config must not be a pointer")
+	if reflect.ValueOf(config).Kind() == reflect.Pointer {
+		slog.Error("[cfgloader]: type T must not be a pointer")
 		os.Exit(1)
 	}
 }
@@ -160,7 +160,7 @@ func validateConfig(config any, env string) {
 	}
 }
 
-func printConfig(config any) {
+func printConfig(config any, env string) {
 	masked := mask.StructToOrdMap(config)
 
 	out, err := yaml.Marshal(masked)
@@ -168,5 +168,12 @@ func printConfig(config any) {
 		slog.Error("[cfgloader]: failed to marshal config", "error", err.Error())
 		os.Exit(1)
 	}
-	fmt.Printf("[cfgloader]: loaded config\n%s\n", string(out)) //nolint:forbidigo // this is exceptional
+
+	//nolint:forbidigo // intentional
+	fmt.Printf(`
+[cfgloader]: config loaded successfully
+[cfgloader]: environment - %s
+
+%s
+`, env, out)
 }
