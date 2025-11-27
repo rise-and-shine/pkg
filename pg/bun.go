@@ -8,9 +8,9 @@ package pg
 import (
 	"github.com/code19m/errx"
 	"github.com/jackc/pgx/v5/stdlib"
+	"github.com/rise-and-shine/pkg/pg/hooks"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/pgdialect"
-	"github.com/uptrace/bun/extra/bundebug"
 	"github.com/uptrace/bun/extra/bunotel"
 )
 
@@ -32,17 +32,17 @@ func NewBunDB(cfg Config) (*bun.DB, error) {
 // applyHooks configures Bun database with query hooks for debugging and telemetry.
 //
 // It adds two hooks:
-// 1. A debug hook that logs queries when debug mode is enabled
+// 1. A custom query logging hook that integrates with the rise-and-shine logger
 // 2. An OpenTelemetry hook that provides tracing information for database operations
 //
-// The debug hook will only be active when debug=true, while the OpenTelemetry hook
-// is always enabled.
+// The query logging hook will only be active when debug=true, while the OpenTelemetry
+// hook is always enabled.
 func applyHooks(db *bun.DB, debug bool) {
-	// Add debug hook
+	// Add custom query logging hook
 	db.AddQueryHook(
-		bundebug.NewQueryHook(
-			bundebug.WithEnabled(debug),
-			bundebug.WithVerbose(true),
+		hooks.NewQueryHook(
+			hooks.WithEnabled(debug),
+			hooks.WithVerbose(true),
 		),
 	)
 

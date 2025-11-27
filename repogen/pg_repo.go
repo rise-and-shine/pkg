@@ -11,7 +11,7 @@ import (
 
 const (
 	codeMultipleRowsFound      = "MULTIPLE_ROWS_FOUND"
-	codeIncorrectRowsAffection = "INCORRECT_ROWS_AFFECTTION"
+	codeIncorrectRowsAffection = "INCORRECT_ROWS_AFFECTION"
 
 	largeBulkSize = 10
 )

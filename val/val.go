@@ -39,11 +39,11 @@ func registerCommonValidations() {
 }
 
 // getTagName returns the name of a struct field based on its struct tags.
-// It checks 'json', 'query', and 'params' tags in that order, and falls back
+// It checks 'json', 'yaml', 'query', and 'params' tags in that order, and falls back
 // to the field name if none of those tags have a non-empty name component.
 func getTagName(fld reflect.StructField) string {
 	// Try each tag in order: json, query, params
-	for _, tagName := range []string{"json", "query", "params"} {
+	for _, tagName := range []string{"json", "yaml", "query", "params"} {
 		name := strings.SplitN(fld.Tag.Get(tagName), ",", 2)[0]
 		if name != "" {
 			return name
