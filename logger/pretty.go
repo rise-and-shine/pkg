@@ -276,11 +276,18 @@ func filterReserved(payload *orderedmap.OrderedMap[string, any]) *orderedmap.Ord
 }
 
 func marshalOrderedIndent(value any, prefix, indent string) ([]byte, error) {
-	om, isOrderedMap := value.(*orderedmap.OrderedMap[string, any])
-	if !isOrderedMap {
-		return json.Marshal(value)
+	if om, isOrderedMap := value.(*orderedmap.OrderedMap[string, any]); isOrderedMap {
+		return marshalOrderedMap(om, prefix, indent)
 	}
 
+	if arr, isSlice := value.([]any); isSlice {
+		return marshalArray(arr, prefix, indent)
+	}
+
+	return json.Marshal(value)
+}
+
+func marshalOrderedMap(om *orderedmap.OrderedMap[string, any], prefix, indent string) ([]byte, error) {
 	if om.Len() == 0 {
 		return []byte("{}"), nil
 	}
@@ -313,6 +320,32 @@ func marshalOrderedIndent(value any, prefix, indent string) ([]byte, error) {
 	}
 
 	buf.WriteString("\n" + prefix + "}")
+	return buf.Bytes(), nil
+}
+
+func marshalArray(arr []any, prefix, indent string) ([]byte, error) {
+	if len(arr) == 0 {
+		return []byte("[]"), nil
+	}
+
+	var buf bytes.Buffer
+	buf.WriteString("[\n")
+
+	for i, elem := range arr {
+		if i > 0 {
+			buf.WriteString(",\n")
+		}
+
+		buf.WriteString(prefix + indent)
+
+		elemBytes, err := marshalOrderedIndent(elem, prefix+indent, indent)
+		if err != nil {
+			return nil, err
+		}
+		buf.Write(elemBytes)
+	}
+
+	buf.WriteString("\n" + prefix + "]")
 	return buf.Bytes(), nil
 }
 
