@@ -68,7 +68,7 @@ func WithSlowQueryThreshold(threshold time.Duration) DebugHookOption {
 
 // BeforeQuery implements bun.QueryHook interface.
 // It is called before query execution and simply returns the context unchanged.
-func (h *DebugHook) BeforeQuery(ctx context.Context, event *bun.QueryEvent) context.Context {
+func (h *DebugHook) BeforeQuery(ctx context.Context, _ *bun.QueryEvent) context.Context {
 	return ctx
 }
 
@@ -103,7 +103,6 @@ func (h *DebugHook) AfterQuery(ctx context.Context, event *bun.QueryEvent) {
 	logEntry := logger.Named("bun_debug_hook").
 		WithContext(ctx).
 		With("query", formatQuery(event.Query)).
-		With("operation", event.Operation()).
 		With("duration", duration.Round(time.Microsecond))
 
 	// Add query args if present
@@ -112,14 +111,15 @@ func (h *DebugHook) AfterQuery(ctx context.Context, event *bun.QueryEvent) {
 	}
 
 	// Log at appropriate level
-	if hasError {
-		logEntry.With("error", event.Err).Error("[bun_debug_hook] database query failed")
-	} else if isNoRowsError {
-		logEntry.With("error", event.Err).Warn("[bun_debug_hook] database query returned no rows")
-	} else if isSlow {
-		logEntry.Warn("[bun_debug_hook] slow database query detected")
-	} else if h.verbose {
-		logEntry.Debug("[bun_debug_hook] database query executed")
+	switch {
+	case hasError:
+		logEntry.With("error", event.Err).Error("[bun-debug] - " + event.Operation())
+	case isNoRowsError:
+		logEntry.With("error", event.Err).Warn("[bun-debug] - " + event.Operation())
+	case isSlow:
+		logEntry.Warn("[bun-debug] - " + event.Operation())
+	case h.verbose:
+		logEntry.Debug("[bun-debug] - " + event.Operation())
 	}
 }
 

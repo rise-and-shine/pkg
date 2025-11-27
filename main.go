@@ -1,11 +1,15 @@
 package main
 
 import (
+	"context"
 	"time"
 
 	"github.com/rise-and-shine/pkg/cfgloader"
 	"github.com/rise-and-shine/pkg/logger"
 	"github.com/rise-and-shine/pkg/mask"
+	"github.com/rise-and-shine/pkg/pg"
+	"github.com/rise-and-shine/pkg/repogen"
+	"github.com/uptrace/bun"
 )
 
 type Config struct {
@@ -69,45 +73,41 @@ func main() {
 
 	logger.Debug("qweqwer")
 
-	// bd, err := pg.NewBunDB(pg.Config{
-	// 	Debug:               true,
-	// 	Host:                "localhost",
-	// 	Port:                5432,
-	// 	User:                "postgres",
-	// 	Password:            "postgres",
-	// 	Database:            "chatx",
-	// 	SSLMode:             "disable",
-	// 	SearchPath:          "public",
-	// 	ConnectTimeout:      10,
-	// 	PoolMaxConns:        4,
-	// 	PoolMinConns:        4,
-	// 	PoolMaxConnLifetime: 1,
-	// 	PoolMaxConnIdleTime: 1,
-	// })
-	// if err != nil {
-	// 	logger.Fatalx(err)
-	// }
+	bd, err := pg.NewBunDB(pg.Config{
+		Debug:               true,
+		Host:                "localhost",
+		Port:                5432,
+		User:                "postgres",
+		Password:            "postgres",
+		Database:            "chatx",
+		SSLMode:             "disable",
+		SearchPath:          "public",
+		ConnectTimeout:      10,
+		PoolMaxConns:        4,
+		PoolMinConns:        4,
+		PoolMaxConnLifetime: 1,
+		PoolMaxConnIdleTime: 1,
+	})
+	if err != nil {
+		logger.Fatalx(err)
+	}
 
-	// rep := repogen.NewPgRepo[User](
-	// 	bd,
-	// 	"user",
-	// 	"USER_NOT_FOUND",
-	// 	map[string]string{},
-	// 	func(q *bun.SelectQuery, f struct{}) *bun.SelectQuery {
-	// 		return q
-	// 	},
-	// )
+	rep := repogen.NewPgRepo[User](
+		bd,
+		"user",
+		"USER_NOT_FOUND",
+		map[string]string{},
+		func(q *bun.SelectQuery, f struct{}) *bun.SelectQuery {
+			return q
+		},
+	)
 
-	// qq, err := rep.List(context.Background(), struct{}{})
-	// if err != nil {
-	// 	logger.Fatalx(err)
-	// }
+	qq, err := rep.List(context.Background(), struct{}{})
+	if err != nil {
+		logger.Fatalx(err)
+	}
 
-	// logger.With("qq", qq).Info("qq")
-
-	// logger.Info("qq", "listjon", map[string]any{
-	// 	"qq": qq,
-	// })
+	logger.With("qq", qq).Info("qq")
 }
 
 type Request struct {
