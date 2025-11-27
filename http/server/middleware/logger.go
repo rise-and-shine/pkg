@@ -45,7 +45,7 @@ func NewLoggerMW(debug bool) server.Middleware {
 				"http_path", c.Path(),
 				"http_route", c.Route().Path,
 				"request_size", c.Request().Header.ContentLength(),
-				"duration", time.Since(start),
+				"duration", time.Since(start).Round(time.Microsecond),
 				"query_params", c.Queries(),
 			)
 

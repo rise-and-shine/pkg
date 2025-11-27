@@ -40,7 +40,7 @@ func NewBunDB(cfg Config) (*bun.DB, error) {
 func applyHooks(db *bun.DB, debug bool) {
 	// Add custom query logging hook
 	db.AddQueryHook(
-		hooks.NewQueryHook(
+		hooks.NewDebugHook(
 			hooks.WithEnabled(debug),
 			hooks.WithVerbose(true),
 		),

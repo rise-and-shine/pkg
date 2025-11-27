@@ -4,30 +4,31 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/rise-and-shine/pkg/logger"
 	"github.com/uptrace/bun"
 )
 
-// Verify that QueryHook implements bun.QueryHook interface at compile time.
-var _ bun.QueryHook = (*QueryHook)(nil)
+// Verify that DebugHook implements bun.QueryHook interface at compile time.
+var _ bun.QueryHook = (*DebugHook)(nil)
 
-// QueryHook is a custom Bun query hook that integrates with the rise-and-shine logger.
+// DebugHook is a custom Bun query hook that integrates with the rise-and-shine logger.
 // It logs database queries with configurable verbosity and slow query detection.
-type QueryHook struct {
+type DebugHook struct {
 	enabled            bool
 	verbose            bool
 	slowQueryThreshold time.Duration
 }
 
-// QueryHookOption is a function that configures a QueryHook.
-type QueryHookOption func(*QueryHook)
+// DebugHookOption is a function that configures a QueryHook.
+type DebugHookOption func(*DebugHook)
 
-// NewQueryHook creates a new query hook with the provided options.
+// NewDebugHook creates a new query hook with the provided options.
 // By default, the hook is enabled, verbose mode is on, and slow query threshold is 100ms.
-func NewQueryHook(opts ...QueryHookOption) *QueryHook {
-	hook := &QueryHook{
+func NewDebugHook(opts ...DebugHookOption) *DebugHook {
+	hook := &DebugHook{
 		enabled:            true,
 		verbose:            true,
 		slowQueryThreshold: 100 * time.Millisecond,
@@ -42,8 +43,8 @@ func NewQueryHook(opts ...QueryHookOption) *QueryHook {
 
 // WithEnabled sets whether the query hook is enabled.
 // When disabled, no queries will be logged.
-func WithEnabled(enabled bool) QueryHookOption {
-	return func(h *QueryHook) {
+func WithEnabled(enabled bool) DebugHookOption {
+	return func(h *DebugHook) {
 		h.enabled = enabled
 	}
 }
@@ -51,29 +52,29 @@ func WithEnabled(enabled bool) QueryHookOption {
 // WithVerbose sets whether to log all queries or only failures and warnings.
 // When verbose=true: logs all queries at debug level, errors at error level, warnings at warn level.
 // When verbose=false: logs only errors and warnings (failed queries, no rows, slow queries).
-func WithVerbose(verbose bool) QueryHookOption {
-	return func(h *QueryHook) {
+func WithVerbose(verbose bool) DebugHookOption {
+	return func(h *DebugHook) {
 		h.verbose = verbose
 	}
 }
 
 // WithSlowQueryThreshold sets the duration threshold for logging slow queries at warn level.
 // Set to 0 to disable slow query detection.
-func WithSlowQueryThreshold(threshold time.Duration) QueryHookOption {
-	return func(h *QueryHook) {
+func WithSlowQueryThreshold(threshold time.Duration) DebugHookOption {
+	return func(h *DebugHook) {
 		h.slowQueryThreshold = threshold
 	}
 }
 
 // BeforeQuery implements bun.QueryHook interface.
 // It is called before query execution and simply returns the context unchanged.
-func (h *QueryHook) BeforeQuery(ctx context.Context, event *bun.QueryEvent) context.Context {
+func (h *DebugHook) BeforeQuery(ctx context.Context, event *bun.QueryEvent) context.Context {
 	return ctx
 }
 
 // AfterQuery implements bun.QueryHook interface.
 // It is called after query execution and logs the query with appropriate detail level.
-func (h *QueryHook) AfterQuery(ctx context.Context, event *bun.QueryEvent) {
+func (h *DebugHook) AfterQuery(ctx context.Context, event *bun.QueryEvent) {
 	// Early return if hook is disabled
 	if !h.enabled {
 		return
@@ -101,10 +102,9 @@ func (h *QueryHook) AfterQuery(ctx context.Context, event *bun.QueryEvent) {
 	// Build logger with structured fields
 	logEntry := logger.Named("bun_debug_hook").
 		WithContext(ctx).
-		With("query", event.Query).
+		With("query", formatQuery(event.Query)).
 		With("operation", event.Operation()).
-		With("duration", duration.String()).
-		With("duration_ms", duration.Milliseconds())
+		With("duration", duration.Round(time.Microsecond))
 
 	// Add query args if present
 	if len(event.QueryArgs) > 0 {
@@ -121,4 +121,9 @@ func (h *QueryHook) AfterQuery(ctx context.Context, event *bun.QueryEvent) {
 	} else if h.verbose {
 		logEntry.Debug("[bun_debug_hook] database query executed")
 	}
+}
+
+// formatQuery cleans \" symbols from the query string.
+func formatQuery(query string) string {
+	return strings.ReplaceAll(query, "\"", "")
 }
