@@ -28,8 +28,6 @@ func NewMetaInjectMW(serviceName, serviceVersion string) server.Middleware {
 				meta.TraceID:        traceID,
 				meta.ServiceName:    serviceName,
 				meta.ServiceVersion: serviceVersion,
-				meta.AcceptLanguage: c.Get("accept-language"),
-				meta.XTzOffset:      c.Get("x-tz-offset"),
 			}
 
 			ctx := c.UserContext()

@@ -25,12 +25,6 @@ const (
 
 	// ServiceVersion indicates the version of the service.
 	ServiceVersion ContextKey = "service_version"
-
-	// AcceptLanguage indicates the natural language and locale that the client prefers.
-	AcceptLanguage ContextKey = "accept-language"
-
-	// XTzOffset contains the timezone offset from the client.
-	XTzOffset ContextKey = "x-tz-offset"
 )
 
 // ExtractMetaFromContext extracts all metadata from the provided context.
@@ -44,8 +38,6 @@ func ExtractMetaFromContext(ctx context.Context) map[ContextKey]string {
 		ActorID,
 		ServiceName,
 		ServiceVersion,
-		AcceptLanguage,
-		XTzOffset,
 	} {
 		if v, ok := ctx.Value(k).(string); ok && v != "" {
 			data[k] = v

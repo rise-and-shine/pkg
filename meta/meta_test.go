@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/rise-and-shine/pkg/meta"
 )
@@ -42,7 +43,7 @@ func TestInjectMetaToContext(t *testing.T) {
 	}{
 		{
 			name:       "inject single value",
-			initialCtx: context.Background(),
+			initialCtx: t.Context(),
 			metaData: testMeta(
 				mp(meta.TraceID, "abc-123"),
 			),
@@ -51,7 +52,7 @@ func TestInjectMetaToContext(t *testing.T) {
 		},
 		{
 			name:       "inject multiple values",
-			initialCtx: context.Background(),
+			initialCtx: t.Context(),
 			metaData: testMeta(
 				mp(meta.TraceID, "trace-123"),
 				mp(meta.ActorID, "user-456"),
@@ -64,7 +65,7 @@ func TestInjectMetaToContext(t *testing.T) {
 		},
 		{
 			name:       "skip empty values",
-			initialCtx: context.Background(),
+			initialCtx: t.Context(),
 			metaData: testMeta(
 				mp(meta.TraceID, "trace-123"),
 				mp(meta.ActorID, ""),
@@ -75,7 +76,7 @@ func TestInjectMetaToContext(t *testing.T) {
 		},
 		{
 			name:       "overwrite existing value",
-			initialCtx: context.WithValue(context.Background(), meta.TraceID, "old-trace-id"),
+			initialCtx: context.WithValue(t.Context(), meta.TraceID, "old-trace-id"),
 			metaData: testMeta(
 				mp(meta.TraceID, "new-trace-id"),
 			),
@@ -84,7 +85,7 @@ func TestInjectMetaToContext(t *testing.T) {
 		},
 		{
 			name:        "empty map",
-			initialCtx:  context.Background(),
+			initialCtx:  t.Context(),
 			metaData:    testMeta(),
 			keyToVerify: meta.TraceID,
 			nilValue:    true,
@@ -97,6 +98,7 @@ func TestInjectMetaToContext(t *testing.T) {
 			resultCtx := tc.initialCtx
 			for k, v := range tc.metaData {
 				if v != "" {
+					//nolint:fatcontext // Intentional nested context for testing
 					resultCtx = context.WithValue(resultCtx, k, v)
 				}
 			}
@@ -129,7 +131,7 @@ func TestExtractMetaFromContext(t *testing.T) {
 		{
 			name: "extract single value",
 			ctxSetup: func() context.Context {
-				ctx := context.Background()
+				ctx := t.Context()
 				return context.WithValue(ctx, meta.TraceID, "abc-123")
 			},
 			expected: testMeta(
@@ -139,7 +141,7 @@ func TestExtractMetaFromContext(t *testing.T) {
 		{
 			name: "extract multiple values",
 			ctxSetup: func() context.Context {
-				ctx := context.Background()
+				ctx := t.Context()
 				ctx = context.WithValue(ctx, meta.TraceID, "trace-123")
 				ctx = context.WithValue(ctx, meta.ActorID, "user-456")
 				ctx = context.WithValue(ctx, meta.ActorType, "customer")
@@ -156,7 +158,7 @@ func TestExtractMetaFromContext(t *testing.T) {
 		{
 			name: "ignore non-string values",
 			ctxSetup: func() context.Context {
-				ctx := context.Background()
+				ctx := t.Context()
 				ctx = context.WithValue(ctx, meta.TraceID, 12345) // Not a string
 				ctx = context.WithValue(ctx, meta.ServiceName, "auth-service")
 				return ctx
@@ -168,7 +170,7 @@ func TestExtractMetaFromContext(t *testing.T) {
 		{
 			name: "ignore empty string values",
 			ctxSetup: func() context.Context {
-				ctx := context.Background()
+				ctx := t.Context()
 				ctx = context.WithValue(ctx, meta.TraceID, "trace-123")
 				ctx = context.WithValue(ctx, meta.ActorID, "") // Empty string
 				return ctx
@@ -179,13 +181,13 @@ func TestExtractMetaFromContext(t *testing.T) {
 		},
 		{
 			name:     "empty context",
-			ctxSetup: context.Background,
+			ctxSetup: t.Context,
 			expected: testMeta(),
 		},
 		{
 			name: "with custom context key not in predefined list",
 			ctxSetup: func() context.Context {
-				ctx := context.Background()
+				ctx := t.Context()
 				customKey := meta.ContextKey("custom_key")
 				ctx = context.WithValue(ctx, customKey, "custom_value")
 				ctx = context.WithValue(ctx, meta.TraceID, "trace-123")
@@ -216,20 +218,19 @@ func TestRoundTrip(t *testing.T) {
 	// This test checks that metadata can be injected into a context and then extracted correctly
 
 	// Arrange
-	originalCtx := context.Background()
+	originalCtx := t.Context()
 	metadata := testMeta(
 		mp(meta.TraceID, "trace-123"),
 		mp(meta.ActorType, "user"),
 		mp(meta.ActorID, "actor-123"),
 		mp(meta.ServiceName, "auth-service"),
 		mp(meta.ServiceVersion, "v1.0.0"),
-		mp(meta.AcceptLanguage, "en-US"),
-		mp(meta.XTzOffset, "-0700"),
 	)
 
 	// Act - Inject metadata into context
 	ctxWithMeta := originalCtx
 	for k, v := range metadata {
+		//nolint:fatcontext // Intentional nested context for testing
 		ctxWithMeta = context.WithValue(ctxWithMeta, k, v)
 	}
 
@@ -252,17 +253,15 @@ func TestShouldGetMeta(t *testing.T) {
 		{
 			name: "success - valid string value",
 			ctxSetup: func() context.Context {
-				return context.WithValue(context.Background(), meta.TraceID, "trace-xyz-123")
+				return context.WithValue(t.Context(), meta.TraceID, "trace-xyz-123")
 			},
 			key:           meta.TraceID,
 			expectedValue: "trace-xyz-123",
 			expectError:   false,
 		},
 		{
-			name: "error - key not found",
-			ctxSetup: func() context.Context {
-				return context.Background()
-			},
+			name:          "error - key not found",
+			ctxSetup:      t.Context,
 			key:           meta.ActorID,
 			expectedValue: "",
 			expectError:   true,
@@ -271,7 +270,7 @@ func TestShouldGetMeta(t *testing.T) {
 		{
 			name: "error - type mismatch (non-string value)",
 			ctxSetup: func() context.Context {
-				return context.WithValue(context.Background(), meta.ActorID, 12345)
+				return context.WithValue(t.Context(), meta.ActorID, 12345)
 			},
 			key:           meta.ActorID,
 			expectedValue: "",
@@ -281,7 +280,7 @@ func TestShouldGetMeta(t *testing.T) {
 		{
 			name: "success - empty string value",
 			ctxSetup: func() context.Context {
-				return context.WithValue(context.Background(), meta.ActorType, "")
+				return context.WithValue(t.Context(), meta.ActorType, "")
 			},
 			key:           meta.ActorType,
 			expectedValue: "",
@@ -290,14 +289,12 @@ func TestShouldGetMeta(t *testing.T) {
 		{
 			name: "success - all predefined keys",
 			ctxSetup: func() context.Context {
-				ctx := context.Background()
+				ctx := t.Context()
 				ctx = context.WithValue(ctx, meta.TraceID, "trace-123")
 				ctx = context.WithValue(ctx, meta.ActorType, "user")
 				ctx = context.WithValue(ctx, meta.ActorID, "actor-456")
 				ctx = context.WithValue(ctx, meta.ServiceName, "test-service")
 				ctx = context.WithValue(ctx, meta.ServiceVersion, "v1.0.0")
-				ctx = context.WithValue(ctx, meta.AcceptLanguage, "en-US")
-				ctx = context.WithValue(ctx, meta.XTzOffset, "-0700")
 				return ctx
 			},
 			key:           meta.ServiceName,
@@ -310,7 +307,7 @@ func TestShouldGetMeta(t *testing.T) {
 				type customStruct struct {
 					field string
 				}
-				return context.WithValue(context.Background(), meta.ServiceName, customStruct{field: "value"})
+				return context.WithValue(t.Context(), meta.ServiceName, customStruct{field: "value"})
 			},
 			key:           meta.ServiceName,
 			expectedValue: "",
@@ -329,11 +326,11 @@ func TestShouldGetMeta(t *testing.T) {
 
 			// Assert
 			if tc.expectError {
-				assert.Error(t, err)
+				require.Error(t, err)
 				assert.Contains(t, err.Error(), tc.errorContains)
 				assert.Equal(t, tc.expectedValue, value)
 			} else {
-				assert.NoError(t, err)
+				require.NoError(t, err)
 				assert.Equal(t, tc.expectedValue, value)
 			}
 		})
@@ -350,13 +347,12 @@ func TestAllContextKeys(t *testing.T) {
 		mp(meta.ActorID, "user-123"),
 		mp(meta.ServiceName, "api-gateway"),
 		mp(meta.ServiceVersion, "v2.3.4"),
-		mp(meta.AcceptLanguage, "en-US"),
-		mp(meta.XTzOffset, "-0700"),
 	)
 
 	// Inject all keys into context
-	ctx := context.Background()
+	ctx := t.Context()
 	for k, v := range allKeys {
+		//nolint:fatcontext // Intentional nested context for testing
 		ctx = context.WithValue(ctx, k, v)
 	}
 

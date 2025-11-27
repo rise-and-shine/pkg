@@ -111,9 +111,11 @@ func withSafeHeaders(c *fiber.Ctx, logger logger.Logger) logger.Logger {
 		"referer",
 		"user-agent",
 		"content-type",
+		"accept-language",
 		"x-client-app-name",
 		"x-client-app-os",
 		"x-client-app-version",
+		"x-tz-offset",
 	}
 
 	for _, h := range safeHeaders {
