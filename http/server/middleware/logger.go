@@ -46,7 +46,6 @@ func NewLoggerMW(debug bool) server.Middleware {
 				"http_route", c.Route().Path,
 				"request_size", c.Request().Header.ContentLength(),
 				"duration", time.Since(start).Round(time.Microsecond),
-				"query_params", c.Queries(),
 			)
 
 			// get user data from locals which should be set by authentication middleware
@@ -55,6 +54,12 @@ func NewLoggerMW(debug bool) server.Middleware {
 				"actor_id", c.Locals(meta.ActorID),
 			)
 
+			// add query params
+			logger = logger.With(
+				"query_params", c.Queries(),
+			)
+
+			// add request, response bodies on debug mode
 			logger = withSafeRequestResponse(c, logger, debug)
 
 			switch {
@@ -137,11 +142,11 @@ func withSafeRequestResponse(c *fiber.Ctx, logger logger.Logger, debug bool) log
 	resp := c.Locals("response_body")
 
 	if req != nil {
-		logger = logger.With("request_body", mask.StructToOrdMap(req)) // TODO: watch for log entry format
+		logger = logger.With("request_body", mask.StructToOrdMap(req))
 	}
 
 	if resp != nil {
-		logger = logger.With("response_body", mask.StructToOrdMap(resp)) // TODO: watch for log entry format
+		logger = logger.With("response_body", mask.StructToOrdMap(resp))
 	}
 
 	return logger
