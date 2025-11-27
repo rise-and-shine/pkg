@@ -10,6 +10,10 @@ import (
 	"github.com/go-playground/validator/v10"
 )
 
+const (
+	CodeValidationFailed = "VALIDATION_FAILED"
+)
+
 // ValidateSchema validates a given schema using the go-playground/validator package.
 func ValidateSchema(schema any) error {
 	err := getValidator().Struct(schema)
