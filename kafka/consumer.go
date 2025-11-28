@@ -7,8 +7,8 @@ import (
 
 	"github.com/IBM/sarama"
 	"github.com/code19m/errx"
-	"github.com/rise-and-shine/pkg/alert"
-	"github.com/rise-and-shine/pkg/logger"
+	"github.com/rise-and-shine/pkg/observability/alert"
+	"github.com/rise-and-shine/pkg/observability/logger"
 )
 
 type Consumer struct {

@@ -7,7 +7,7 @@ import (
 	"github.com/code19m/errx"
 	"github.com/gofiber/fiber/v2"
 	"github.com/rise-and-shine/pkg/http/server"
-	"github.com/rise-and-shine/pkg/logger"
+	"github.com/rise-and-shine/pkg/observability/logger"
 )
 
 // NewRecoveryMW creates a middleware that recovers from panics in the request

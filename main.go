@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/rise-and-shine/pkg/cfgloader"
-	"github.com/rise-and-shine/pkg/logger"
 	"github.com/rise-and-shine/pkg/mask"
+	"github.com/rise-and-shine/pkg/observability/logger"
 	"github.com/rise-and-shine/pkg/pg"
 	"github.com/rise-and-shine/pkg/repogen"
 	"github.com/uptrace/bun"

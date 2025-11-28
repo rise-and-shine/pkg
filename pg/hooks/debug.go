@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rise-and-shine/pkg/logger"
+	"github.com/rise-and-shine/pkg/observability/logger"
 	"github.com/uptrace/bun"
 )
 
