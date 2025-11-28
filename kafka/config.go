@@ -1,7 +1,6 @@
 package kafka
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/IBM/sarama"
@@ -19,14 +18,13 @@ type ConsumerConfig struct {
 	SaslUsername string `yaml:"sasl_username"`
 	SaslPassword string `yaml:"sasl_password"                     mask:"true"`
 
-	// If not set default to the service name.
-	GroupID        string        `yaml:"group_id"`
-	KafkaVersion   string        `yaml:"kafka_version"   default:"3.6.0"`
-	InitialOffset  string        `yaml:"initial_offset"  default:"newest" validate:"oneof=newest oldest"`
+	// If not set defaults to the service name.
+	GroupID string `yaml:"group_id"`
+
+	KafkaVersion  string `yaml:"kafka_version"  default:"3.6.0"`
+	InitialOffset string `yaml:"initial_offset" default:"newest" validate:"oneof=newest oldest"`
+
 	HandlerTimeout time.Duration `yaml:"handler_timeout" default:"30s"`
-	RetryDisabled  bool          `yaml:"retry_disabled"  default:"false"`
-	RetryCount     uint8         `yaml:"retry_count"     default:"3"`
-	RetryDelay     time.Duration `yaml:"retry_delay"     default:"100ms"`
 }
 
 func (c *ConsumerConfig) getSaramaConfig(serviceName string) (*sarama.Config, error) {
@@ -55,7 +53,9 @@ func (c *ConsumerConfig) getSaramaConfig(serviceName string) (*sarama.Config, er
 	case oldestOffset:
 		saramaConf.Consumer.Offsets.Initial = sarama.OffsetOldest
 	default:
-		return nil, errx.New(fmt.Sprintf("unknown initial offset %s", c.InitialOffset))
+		return nil, errx.New("[kafka] unknown initial offset", errx.WithDetails(errx.D{
+			"initial_offset": c.InitialOffset,
+		}))
 	}
 
 	return saramaConf, nil

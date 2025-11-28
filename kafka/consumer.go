@@ -33,7 +33,6 @@ func NewConsumer(
 	serviceName string,
 	serviceVersion string,
 	alertProvider alert.Provider,
-	logger logger.Logger,
 	handleFn HandleFunc,
 ) (*Consumer, error) {
 	saramaCfg, err := cfg.getSaramaConfig(serviceName)
@@ -53,7 +52,7 @@ func NewConsumer(
 		serviceName:    serviceName,
 		serviceVersion: serviceVersion,
 		saramaCfg:      saramaCfg,
-		logger:         logger.Named("consumer"),
+		logger:         logger.Named("kafka.consumer"),
 		consumerGroup:  consumerGroup,
 		handleFn:       handleFn,
 		alertProvider:  alertProvider,
@@ -72,7 +71,7 @@ func (c *Consumer) Start() error {
 			return errx.Wrap(err)
 		}
 
-		c.logger.Info("rebalancing occurred, waiting for new messages")
+		c.logger.Info("[kafka] rebalancing occurred, waiting for new messages")
 	}
 }
 
@@ -131,7 +130,6 @@ func (c *Consumer) buildHandlerChain() HandleFunc {
 	handler := c.handleFn
 
 	// build the chain in reverse order (last wrapper first)
-	handler = c.handlerWithRetry(handler)         // 8. retry (innermost)
 	handler = c.handlerWithErrorHandling(handler) // 7. error handling
 	handler = c.handlerWithLogging(handler)       // 6. logging
 	handler = c.handlerWithAlerting(handler)      // 5. alerting

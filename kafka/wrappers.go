@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/IBM/sarama"
-	"github.com/avast/retry-go/v4"
 	"github.com/code19m/errx"
 	"github.com/google/uuid"
 	"github.com/rise-and-shine/pkg/kafka/otelsarama"
@@ -35,12 +34,12 @@ func (c *Consumer) handlerWithRecovery(next HandleFunc) HandleFunc {
 					Named("recovery").
 					WithContext(ctx).
 					With("stack_trace", string(stackTrace)).
-					With("panic_values", fmt.Sprintf("%v", r)).
+					With("panic_message", r).
 					Error("panic recovered in recovery handler")
 
 				err = errx.New("panic recovered in recovery handler", errx.WithDetails(errx.D{
-					"stack_trace":  string(stackTrace),
-					"panic_values": fmt.Sprintf("%v", r),
+					"stack_trace":   string(stackTrace),
+					"panic_message": r,
 				}))
 			}
 		}()
@@ -184,38 +183,6 @@ func (c *Consumer) handlerWithErrorHandling(next HandleFunc) HandleFunc {
 	return func(ctx context.Context, msg *sarama.ConsumerMessage) error {
 		// make any error as internal
 		return errx.Wrap(next(ctx, msg), errx.WithType(errx.T_Internal))
-	}
-}
-
-// handlerWithRetry is a wrapper around the handler to add retry support with backoff and jitter.
-func (c *Consumer) handlerWithRetry(next HandleFunc) HandleFunc {
-	return func(ctx context.Context, msg *sarama.ConsumerMessage) error {
-		if c.cfg.RetryDisabled {
-			return next(ctx, msg)
-		}
-
-		logger := c.logger.Named("retry").WithContext(ctx)
-
-		// configure retry with backoff and jitter
-		err := retry.Do(
-			func() error {
-				return next(ctx, msg)
-			},
-			retry.Attempts(uint(c.cfg.RetryCount)),
-			retry.Delay(c.cfg.RetryDelay),
-			retry.MaxJitter(10),
-			retry.LastErrorOnly(true), // only return the last error
-			retry.OnRetry(func(n uint, err error) {
-				logger.
-					With("error", getErrObject(err)).
-					With("attempt", n+1).
-					With("max_attempts", c.cfg.RetryCount).
-					With("retrying kafka message")
-			}),
-			retry.Context(ctx), // response to context cancellation
-		)
-
-		return err
 	}
 }
 
