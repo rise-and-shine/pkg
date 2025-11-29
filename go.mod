@@ -4,7 +4,6 @@ go 1.25.3
 
 require (
 	github.com/IBM/sarama v1.46.3
-	github.com/avast/retry-go/v4 v4.7.0
 	github.com/code19m/errx v0.3.3
 	github.com/code19m/sentinel v0.2.0
 	github.com/creasty/defaults v1.8.0
@@ -13,7 +12,6 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.7.6
 	github.com/joho/godotenv v1.5.1
-	github.com/rcrowley/go-metrics v0.0.0-20250401214520-65e299d6c5c9
 	github.com/samber/lo v1.52.0
 	github.com/spf13/cast v1.10.0
 	github.com/stretchr/testify v1.11.1
@@ -69,6 +67,7 @@ require (
 	github.com/pierrec/lz4/v4 v4.1.22 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/puzpuzpuz/xsync/v3 v3.5.1 // indirect
+	github.com/rcrowley/go-metrics v0.0.0-20250401214520-65e299d6c5c9 // indirect
 	github.com/tmthrgd/go-hex v0.0.0-20190904060850-447a3041c3bc // indirect
 	github.com/uptrace/opentelemetry-go-extra/otelsql v0.3.2 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect

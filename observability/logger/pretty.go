@@ -119,7 +119,7 @@ func decodeObject(decoder *json.Decoder) (*orderedmap.OrderedMap[string, any], e
 		if err != nil {
 			return nil, err
 		}
-		key := keyToken.(string)
+		key, _ := keyToken.(string)
 
 		value, err := decodeValue(decoder)
 		if err != nil {

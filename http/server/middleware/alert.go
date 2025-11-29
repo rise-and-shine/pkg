@@ -8,9 +8,9 @@ import (
 
 	"github.com/code19m/errx"
 	"github.com/gofiber/fiber/v2"
-	"github.com/rise-and-shine/pkg/observability/alert"
 	"github.com/rise-and-shine/pkg/http/server"
 	"github.com/rise-and-shine/pkg/meta"
+	"github.com/rise-and-shine/pkg/observability/alert"
 	"github.com/rise-and-shine/pkg/observability/logger"
 )
 

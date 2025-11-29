@@ -11,9 +11,9 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-// SentinelProvider implements the Provider interface for sending alerts to Sentinel.
+// sentinelProvider implements the Provider interface for sending alerts to Sentinel.
 // It manages the gRPC client and connection to the Sentinel service.
-type SentinelProvider struct {
+type sentinelProvider struct {
 	// cfg holds the configuration for the Sentinel provider.
 	cfg Config
 	// serviceName is the name of the service sending alerts.
@@ -26,16 +26,11 @@ type SentinelProvider struct {
 	conn *grpc.ClientConn
 }
 
-// NewSentinelProvider creates a new SentinelProvider instance.
+// newSentinelProvider creates a new sentinelProvider instance.
 // It establishes a gRPC connection to the Sentinel service specified in the cfg.
 // serviceName and serviceVersion are used to identify the source of the alerts.
-// If cfg.Disable is true, it returns a disabled provider that will not send alerts.
 // Returns an error if the gRPC connection to Sentinel cannot be established.
-func NewSentinelProvider(cfg Config, serviceName, serviceVersion string) (*SentinelProvider, error) {
-	if cfg.Disable {
-		return &SentinelProvider{cfg: cfg}, nil
-	}
-
+func newSentinelProvider(cfg Config, serviceName, serviceVersion string) (Provider, error) {
 	conn, err := grpc.NewClient(
 		fmt.Sprintf("%s:%d", cfg.SentinelHost, cfg.SentinelPort),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -45,7 +40,7 @@ func NewSentinelProvider(cfg Config, serviceName, serviceVersion string) (*Senti
 		return nil, errx.Wrap(err)
 	}
 
-	return &SentinelProvider{
+	return &sentinelProvider{
 		cfg:            cfg,
 		serviceName:    serviceName,
 		serviceVersion: serviceVersion,
@@ -68,7 +63,7 @@ func NewSentinelProvider(cfg Config, serviceName, serviceVersion string) (*Senti
 //	}
 //
 // Returns an error if the gRPC call to Sentinel fails or if the context times out.
-func (sp *SentinelProvider) SendError(
+func (sp *sentinelProvider) SendError(
 	ctx context.Context,
 	errCode, msg, operation string,
 	details map[string]string,
@@ -99,7 +94,7 @@ func (sp *SentinelProvider) SendError(
 // Close closes the gRPC connection to the Sentinel service.
 // It should be called when the SentinelProvider is no longer needed to release resources.
 // Returns an error if closing the connection fails.
-func (sp *SentinelProvider) Close() error {
+func (sp *sentinelProvider) Close() error {
 	if sp.conn != nil {
 		return sp.conn.Close()
 	}
