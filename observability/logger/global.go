@@ -94,6 +94,11 @@ func Errorx(err error) {
 	getGlobal().Errorx(err)
 }
 
+// Fatalx logs an errx.ErrorX instance at fatal level using the global logger and then calls os.Exit(1).
+func Fatalx(err error) {
+	getGlobal().Fatalx(err)
+}
+
 // With creates a new logger with the given key-value pairs using the global logger.
 // The returned logger inherits the properties of the global logger
 // and includes the provided key-value pairs in all subsequent log entries.
