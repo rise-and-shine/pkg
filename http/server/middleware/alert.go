@@ -12,6 +12,7 @@ import (
 	"github.com/rise-and-shine/pkg/meta"
 	"github.com/rise-and-shine/pkg/observability/alert"
 	"github.com/rise-and-shine/pkg/observability/logger"
+	"github.com/spf13/cast"
 )
 
 const (
@@ -23,13 +24,13 @@ const (
 // This middleware captures internal errors, extracts relevant metadata from the request
 // context, and sends alerts through the provided alert.Provider. It only processes
 // errors of type errx.T_Internal.
-func NewAlertingMW(logger logger.Logger, provider alert.Provider) server.Middleware {
+func NewAlertingMW() server.Middleware {
 	return server.Middleware{
 		Priority: 600,
 		Handler: func(c *fiber.Ctx) error {
 			ctx := c.UserContext()
 
-			log := logger.Named("middleware.alerting").WithContext(ctx)
+			log := logger.Named("http.alerting").WithContext(ctx)
 
 			err := c.Next()
 
@@ -39,6 +40,7 @@ func NewAlertingMW(logger logger.Logger, provider alert.Provider) server.Middlew
 
 			e := errx.AsErrorX(err)
 
+			// only process internal errors
 			if e.Type() != errx.T_Internal {
 				return err
 			}
@@ -53,17 +55,16 @@ func NewAlertingMW(logger logger.Logger, provider alert.Provider) server.Middlew
 				details[string(k)] = v
 			}
 
-			// get user data from locals
-			// details["request_user_id"] = cast.ToString(c.Locals(meta.RequestUserID))
-			// details["request_user_type"] = cast.ToString(c.Locals(meta.RequestUserType))
-			// details["request_user_role"] = cast.ToString(c.Locals(meta.RequestUserRole))
+			// get actor info from locals
+			details["actor_type"] = cast.ToString(c.Locals(meta.ActorType))
+			details["actor_id"] = cast.ToString(c.Locals(meta.ActorID))
 
 			newCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), alertSendTimeout)
 
 			go func() {
 				defer cancel() // ensure newCtx is cancelled after sending alert
 
-				sendErr := provider.SendError(newCtx, e.Code(), e.Error(), operation, details)
+				sendErr := alert.SendError(newCtx, e.Code(), e.Error(), operation, details)
 				if sendErr != nil {
 					log.With("alert_send_error", sendErr.Error()).Warn("failed to send alert")
 				}

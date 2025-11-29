@@ -13,30 +13,20 @@ import (
 )
 
 // NewMetaInjectMW creates a middleware that injects metadata into the request context.
-//
-// This middleware collects information from the request such as trace ID, IP address,
-// user agent, and other HTTP headers, and injects them into the request context using
-// the meta package. It also sets service information and prepares keys for user
-// identification that will be populated by authentication middlewares.
+// It also sets the X-Request-ID header to the trace ID.
 func NewMetaInjectMW(serviceName, serviceVersion string) server.Middleware {
 	return server.Middleware{
 		Priority: 700,
 		Handler: func(c *fiber.Ctx) error {
-			traceID := getTraceID(c.UserContext())
-
-			metaData := map[meta.ContextKey]string{
-				meta.TraceID:        traceID,
-				meta.ServiceName:    serviceName,
-				meta.ServiceVersion: serviceVersion,
-			}
-
 			ctx := c.UserContext()
-			for k, v := range metaData {
-				ctx = context.WithValue(ctx, k, v)
-			}
+			traceID := getTraceID(ctx)
+
+			ctx = context.WithValue(ctx, meta.TraceID, traceID)
+			ctx = context.WithValue(ctx, meta.ServiceName, serviceName)
+			ctx = context.WithValue(ctx, meta.ServiceVersion, serviceVersion)
 
 			c.SetUserContext(ctx)
-
+			c.Set("X-Request-ID", traceID)
 			return c.Next()
 		},
 	}

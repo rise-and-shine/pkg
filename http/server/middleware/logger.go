@@ -134,10 +134,6 @@ func withSafeRequestResponse(c *fiber.Ctx, logger logger.Logger, debug bool) log
 		return logger
 	}
 
-	if c.Method() != fiber.MethodPost {
-		return logger
-	}
-
 	// get request and response body from locals
 	// which should be set by handlers
 	req := c.Locals("request_body")

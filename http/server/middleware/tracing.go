@@ -33,8 +33,6 @@ func NewTracingMW() server.Middleware {
 
 			c.SetUserContext(ctx)
 
-			c.Set("X-Request-ID", span.SpanContext().TraceID().String())
-
 			err := c.Next()
 
 			routerPattern := c.Route().Path
