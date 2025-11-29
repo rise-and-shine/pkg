@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/rise-and-shine/pkg/kafka/otelsarama"
 	"github.com/rise-and-shine/pkg/meta"
+	"github.com/rise-and-shine/pkg/observability/alert"
 	"github.com/samber/lo"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
@@ -90,15 +91,10 @@ func (c *Consumer) handlerWithTimeout(next HandleFunc) HandleFunc {
 // handlerWithMetaInjection is a wrapper around the handler to add meta injectionHandlerWithRecovery.
 func (c *Consumer) handlerWithMetaInjection(next HandleFunc) HandleFunc {
 	return func(ctx context.Context, msg *sarama.ConsumerMessage) error {
-		metaData := map[meta.ContextKey]string{ //nolint:exhaustive // exhaustive is false positive here, as we are not using all keys
-			meta.TraceID:        getTraceID(ctx),
-			meta.ServiceName:    c.serviceName,
-			meta.ServiceVersion: c.serviceVersion,
-		}
-		_ = metaData
-
-		// add meta to context for downstream handlers
-		// ctx = meta.InjectMetaToContext(ctx, metaData)
+		// add meta info to context
+		ctx = context.WithValue(ctx, meta.TraceID, getTraceID(ctx))
+		ctx = context.WithValue(ctx, meta.ServiceName, c.serviceName)
+		ctx = context.WithValue(ctx, meta.ServiceVersion, c.serviceVersion)
 
 		return next(ctx, msg)
 	}
@@ -129,7 +125,7 @@ func (c *Consumer) handlerWithAlerting(next HandleFunc) HandleFunc {
 		go func() {
 			defer cancel() // ensure newCtx is cancelled after sending alert
 
-			sendErr := c.alertProvider.SendError(newCtx, e.Code(), err.Error(), operation, details)
+			sendErr := alert.SendError(newCtx, e.Code(), err.Error(), operation, details)
 			if sendErr != nil {
 				logger.With("alert_send_error", sendErr).Warn("failed to send error alert")
 			}
@@ -165,12 +161,10 @@ func (c *Consumer) handlerWithLogging(next HandleFunc) HandleFunc {
 			"headers", headers,
 		)
 
-		logMsg := "consumed incoming kafka message"
 		if err != nil {
-			logger = logger.With("error", getErrObject(err))
-			logger.Error(logMsg)
+			logger.Errorx(err)
 		} else {
-			logger.Info(logMsg)
+			logger.Info("message consumed successfully")
 		}
 
 		return err
@@ -178,23 +172,9 @@ func (c *Consumer) handlerWithLogging(next HandleFunc) HandleFunc {
 }
 
 // handlerWithRecovery is a wrapper around the handler to add recovery.
-// TODO: Handle errors more gracefully. For example: Use dead letter queue.
 func (c *Consumer) handlerWithErrorHandling(next HandleFunc) HandleFunc {
 	return func(ctx context.Context, msg *sarama.ConsumerMessage) error {
-		// make any error as internal
 		return errx.Wrap(next(ctx, msg), errx.WithType(errx.T_Internal))
-	}
-}
-
-func getErrObject(err error) any {
-	errx := errx.AsErrorX(err)
-	return map[string]any{
-		"code":    errx.Code(),
-		"message": errx.Error(),
-		"type":    errx.Type().String(),
-		"trace":   errx.Trace(),
-		"fields":  errx.Fields(),
-		"details": errx.Details(),
 	}
 }
 

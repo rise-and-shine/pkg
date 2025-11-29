@@ -7,7 +7,6 @@ import (
 
 	"github.com/IBM/sarama"
 	"github.com/code19m/errx"
-	"github.com/rise-and-shine/pkg/observability/alert"
 	"github.com/rise-and-shine/pkg/observability/logger"
 )
 
@@ -20,7 +19,6 @@ type Consumer struct {
 	logger         logger.Logger
 	consumerGroup  sarama.ConsumerGroup
 	handleFn       HandleFunc
-	alertProvider  alert.Provider
 }
 
 // HandleFunc is a delivery handler that should be injected into the consumer.
@@ -32,7 +30,6 @@ func NewConsumer(
 	topic string,
 	serviceName string,
 	serviceVersion string,
-	alertProvider alert.Provider,
 	handleFn HandleFunc,
 ) (*Consumer, error) {
 	saramaCfg, err := cfg.getSaramaConfig(serviceName)
@@ -55,7 +52,6 @@ func NewConsumer(
 		logger:         logger.Named("kafka.consumer"),
 		consumerGroup:  consumerGroup,
 		handleFn:       handleFn,
-		alertProvider:  alertProvider,
 	}, nil
 }
 
