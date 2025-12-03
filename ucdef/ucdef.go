@@ -7,7 +7,7 @@ import "context"
 const (
 	TypeUserAction      = "user_action"
 	TypeEventSubscriber = "event_subscriber"
-	TypeScheduledJob    = "scheduled_job"
+	TypeAsyncTask       = "async_task"
 	TypeManualCommand   = "manual_command"
 )
 
@@ -33,7 +33,7 @@ type UserAction[I, O any] interface {
 	OperationID() string
 
 	// Execute executes the use case.
-	Execute(ctx context.Context, in I) (O, error)
+	Execute(ctx context.Context, input I) (O, error)
 }
 
 // EventSubscriber represents an asynchronous business operation triggered by domain events.
@@ -59,28 +59,38 @@ type EventSubscriber[E any] interface {
 	OperationID() string
 
 	// Handle handles the event.
-	Handle(ctx context.Context, e E) error
+	Handle(ctx context.Context, event E) error
 }
 
-// ScheduledJob represents a time-triggered business operation executed periodically or at
-// specific times. Jobs are self-contained operations configured via cron expressions and
-// run without external input. They fetch required data from repositories and services.
+// AsyncTask represents an asynchronous unit of work executed in the background by workers.
+// Tasks are enqueued through two mechanisms: scheduled execution (cron) or on-demand
+// from use cases. Workers poll the task queue and execute tasks.
 //
-// Examples: SendDailyReport, CleanupExpiredSessions, RecalculateMetrics, BackupDatabase
+// Examples: GenerateInvoicePDF, SendNotification, CleanupExpiredSessions, ProcessUpload
+//
+// Execution Flow:
+//  1. Scheduled: Cron manager enqueues task at specified time → worker executes
+//  2. On-demand: Use case enqueues task → worker executes
 //
 // Characteristics:
-//   - Triggered by time (cron schedule), not user action or event
-//   - No input parameters - configuration injected via constructor
-//   - Self-contained - fetches its own data from dependencies
-//   - Should be idempotent (safe to run multiple times)
-//   - Failures logged and monitored, may trigger alerts
-//   - Consider distributed locking for multi-instance deployments
-type ScheduledJob interface {
+//   - Always asynchronous - never blocks caller at enqueue time (use case or cron)
+//   - Accepts serializable payload (stored in queue)
+//   - Should be idempotent (queue may deliver same task multiple times)
+//   - Workers inject dependencies (repos, services) before execution
+//   - Execution status tracked in platform observability
+//   - Failed tasks can be retried based on queue configuration
+//
+// Payload Guidelines:
+//   - Must be JSON-serializable (stored in queue)
+//   - Scheduled tasks: nil or empty struct (task fetches data via repos)
+//   - Use case tasks: struct with IDs/parameters (e.g., {InvoiceID: "inv_123"})
+//   - Keep payloads small - store references (IDs), not full entities for large payloads
+type AsyncTask[P any] interface {
 	// OperationID returns a unique identifier for the use case.
 	OperationID() string
 
-	// Execute executes the scheduled job.
-	Execute(ctx context.Context) error
+	// Execute performs the task operation with the given payload.
+	Execute(ctx context.Context, payload P) error
 }
 
 // ManualCommand represents an administrative operation executed manually via CLI.
@@ -105,5 +115,5 @@ type ManualCommand[I any] interface {
 	OperationID() string
 
 	// Execute executes the manual command.
-	Execute(ctx context.Context, in I) error
+	Execute(ctx context.Context, input I) error
 }
