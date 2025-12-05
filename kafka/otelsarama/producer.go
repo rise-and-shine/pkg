@@ -118,7 +118,7 @@ func (p *asyncProducer) Close() error {
 
 type producerMessageContext struct {
 	span           trace.Span
-	metadataBackup interface{}
+	metadataBackup any
 }
 
 // WrapAsyncProducer wraps a sarama.AsyncProducer so that all produced messages
@@ -149,7 +149,7 @@ func WrapAsyncProducer( //nolint:gocognit,funlen // intentional
 
 	var (
 		mtx                     sync.Mutex
-		producerMessageContexts = make(map[interface{}]producerMessageContext)
+		producerMessageContexts = make(map[any]producerMessageContext)
 	)
 
 	// Spawn Input producer goroutine.
