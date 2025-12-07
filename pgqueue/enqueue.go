@@ -2,132 +2,81 @@ package pgqueue
 
 import (
 	"context"
-	"database/sql"
-	"time"
 
 	"github.com/code19m/errx"
 	"github.com/uptrace/bun"
 )
 
-// Enqueue adds a message to the queue.
-func (q *queue) Enqueue(ctx context.Context, queueName string, payload map[string]any, idempotencyKey string, opts ...EnqueueOption) (int64, error) {
-	return q.EnqueueTx(ctx, nil, queueName, payload, idempotencyKey, opts...)
-}
-
-// EnqueueTx adds a message to the queue within a transaction.
-func (q *queue) EnqueueTx(ctx context.Context, tx *bun.Tx, queueName string, payload map[string]any, idempotencyKey string, opts ...EnqueueOption) (int64, error) {
-	// Validate required parameters
-	if queueName == "" {
-		return 0, ErrQueueNameRequired
-	}
-	if len(payload) == 0 {
-		return 0, ErrPayloadRequired
-	}
-	if idempotencyKey == "" {
-		return 0, ErrIdempotencyKeyRequired
-	}
-
-	// Apply functional options
-	config := enqueueConfig{
-		maxAttempts: q.defaultMaxAttempts, // Default from queue config
-	}
-	for _, opt := range opts {
-		opt(&config)
-	}
-
-	// Validate priority range
-	if config.priority < -100 || config.priority > 100 {
-		return 0, ErrInvalidPriority
-	}
-
-	db := getDB(q.db, tx)
-
-	// Handle deduplication (idempotency)
-	var existingID int64
-	err := db.NewSelect().
-		Model((*Message)(nil)).
-		Table(q.qualifiedTableName(TableNameQueueMessages)).
-		Column("id").
-		Where("queue_name = ?", queueName).
-		Where("idempotency_key = ?", idempotencyKey).
-		Where("dlq_at IS NULL").
-		Scan(ctx, &existingID)
-
-	if err != nil && err != sql.ErrNoRows {
-		return 0, errx.Wrap(err)
-	}
-
-	// If exists, return the existing ID (idempotent)
-	if existingID != 0 {
-		return existingID, nil
-	}
-
-	// Calculate scheduled_at
-	scheduledAt := time.Now()
-	if config.scheduledAt != nil {
-		scheduledAt = *config.scheduledAt
-	} else if config.delay > 0 {
-		scheduledAt = time.Now().Add(config.delay)
-	}
-
-	// Create the message
-	msg := &Message{
-		QueueName:      queueName,
-		MessageGroupID: config.messageGroupID,
-		Payload:        payload,
-		ScheduledAt:    scheduledAt,
-		VisibleAt:      scheduledAt, // Initially visible at scheduled time
-		Priority:       config.priority,
-		MaxAttempts:    config.maxAttempts,
-		ExpiresAt:      config.expiresAt,
-		IdempotencyKey: idempotencyKey,
-		Attempts:       0,
-	}
-
-	// Insert the message
-	_, err = db.NewInsert().
-		Model(msg).
-		Table(q.qualifiedTableName(TableNameQueueMessages)).
-		Exec(ctx)
-
-	if err != nil {
-		return 0, errx.Wrap(err)
-	}
-
-	return msg.ID, nil
-}
-
-// EnqueueBatch adds multiple messages to the queue in a single transaction.
+// EnqueueBatchTx adds multiple messages to the queue within a transaction.
 // All messages in the batch will be enqueued to the same queue.
-func (q *queue) EnqueueBatch(ctx context.Context, queueName string, messages []BatchMessage) ([]int64, error) {
+// Returns a list of message IDs for the enqueued messages.
+func (q *queue) EnqueueBatchTx(
+	ctx context.Context,
+	tx *bun.Tx,
+	queueName string,
+	messages []SingleMessage,
+) ([]int64, error) {
+	// Validate queue name
 	if queueName == "" {
-		return nil, ErrQueueNameRequired
+		return nil, errx.New("[pgqueue]: queue name is required")
 	}
 
 	if len(messages) == 0 {
 		return []int64{}, nil
 	}
 
-	var messageIDs []int64
+	messageIDs := make([]int64, 0, len(messages))
 
-	// Execute in a transaction
-	err := q.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		messageIDs = make([]int64, 0, len(messages))
-
-		for _, msg := range messages {
-			id, err := q.EnqueueTx(ctx, &tx, queueName, msg.Payload, msg.IdempotencyKey, msg.Options...)
-			if err != nil {
-				return errx.Wrap(err)
-			}
-			messageIDs = append(messageIDs, id)
+	for _, msg := range messages {
+		id, err := q.enqueueSingle(ctx, tx, queueName, msg)
+		if err != nil {
+			return nil, errx.Wrap(err)
 		}
-
-		return nil
-	})
-
-	if err != nil {
-		return nil, errx.Wrap(err)
+		messageIDs = append(messageIDs, id)
 	}
 
 	return messageIDs, nil
+}
+
+// enqueueSingle adds a single message to the queue within a transaction.
+// This is an internal helper used by EnqueueBatch.
+func (q *queue) enqueueSingle(
+	ctx context.Context,
+	db bun.IDB,
+	queueName string,
+	singleMsg SingleMessage,
+) (int64, error) {
+	// Validate
+	err := validateSingleMsg(singleMsg)
+	if err != nil {
+		return 0, errx.Wrap(err)
+	}
+
+	// Normalize payload
+	payload := singleMsg.Payload
+	if payload == nil {
+		payload = map[string]any{}
+	}
+
+	// Create the message
+	msg := &Message{
+		QueueName:      queueName,
+		MessageGroupID: singleMsg.MessageGroupID,
+		Payload:        payload,
+		ScheduledAt:    singleMsg.ScheduledAt,
+		VisibleAt:      singleMsg.ScheduledAt, // Initially visible at scheduled time
+		Priority:       singleMsg.Priority,
+		MaxAttempts:    singleMsg.MaxAttempts,
+		ExpiresAt:      singleMsg.ExpiresAt,
+		IdempotencyKey: singleMsg.IdempotencyKey,
+		Attempts:       0,
+	}
+
+	// Insert the message
+	err = q.insertMessage(ctx, db, msg)
+	if err != nil {
+		return 0, errx.Wrap(err)
+	}
+
+	return msg.ID, nil
 }

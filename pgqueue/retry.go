@@ -70,7 +70,7 @@ func (s *FixedDelayStrategy) ShouldRetry(attempts, maxAttempts int) bool {
 }
 
 // NextRetryDelay returns the fixed delay.
-func (s *FixedDelayStrategy) NextRetryDelay(attempts int) time.Duration {
+func (s *FixedDelayStrategy) NextRetryDelay(_ int) time.Duration {
 	return s.Delay
 }
 
@@ -83,11 +83,11 @@ func NewNoRetryStrategy() *NoRetryStrategy {
 }
 
 // ShouldRetry always returns false.
-func (s *NoRetryStrategy) ShouldRetry(attempts, maxAttempts int) bool {
+func (s *NoRetryStrategy) ShouldRetry(_, _ int) bool {
 	return false
 }
 
 // NextRetryDelay returns zero duration.
-func (s *NoRetryStrategy) NextRetryDelay(attempts int) time.Duration {
+func (s *NoRetryStrategy) NextRetryDelay(_ int) time.Duration {
 	return 0
 }

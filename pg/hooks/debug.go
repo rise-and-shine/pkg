@@ -110,20 +110,73 @@ func (h *DebugHook) AfterQuery(ctx context.Context, event *bun.QueryEvent) {
 		logEntry = logEntry.With("args", event.QueryArgs)
 	}
 
+	// Determine actual operation from query
+	operation := getActualOperation(event)
+
 	// Log at appropriate level
 	switch {
 	case hasError:
-		logEntry.With("error", event.Err).Error("[bun-debug] - " + event.Operation())
+		logEntry.With("error", event.Err).Error("[bun-debug] - " + operation)
 	case isNoRowsError:
-		logEntry.With("error", event.Err).Warn("[bun-debug] - " + event.Operation())
+		logEntry.With("error", event.Err).Warn("[bun-debug] - " + operation)
 	case isSlow:
-		logEntry.Warn("[bun-debug] - " + event.Operation())
+		logEntry.Warn("[bun-debug] - " + operation)
 	case h.verbose:
-		logEntry.Debug("[bun-debug] - " + event.Operation())
+		logEntry.Debug("[bun-debug] - " + operation)
 	}
 }
 
-// formatQuery cleans \" symbols from the query string.
+// getActualOperation determines the actual SQL operation from the query.
+// This is needed because bun's event.Operation() returns "SELECT" for INSERT...RETURNING queries
+// when using .Scan(), since Scan is typically associated with SELECT operations.
+func getActualOperation(event *bun.QueryEvent) string {
+	query := strings.TrimSpace(strings.ToUpper(event.Query))
+
+	// Check for common SQL operations in order
+	switch {
+	case strings.HasPrefix(query, "INSERT"):
+		return "INSERT"
+	case strings.HasPrefix(query, "UPDATE"):
+		return "UPDATE"
+	case strings.HasPrefix(query, "DELETE"):
+		return "DELETE"
+	case strings.HasPrefix(query, "SELECT"):
+		return "SELECT"
+	case strings.HasPrefix(query, "WITH"):
+		// For CTEs, look for the main operation after the CTE
+		if strings.Contains(query, "INSERT") {
+			return "INSERT"
+		}
+		if strings.Contains(query, "UPDATE") {
+			return "UPDATE"
+		}
+		if strings.Contains(query, "DELETE") {
+			return "DELETE"
+		}
+		return "SELECT" // Default for CTEs
+	default:
+		// Fall back to bun's operation detection
+		return event.Operation()
+	}
+}
+
+// formatQuery cleans up the query string for logging by removing formatting characters.
+// It removes newlines, tabs, double quotes, and collapses multiple spaces into single spaces.
 func formatQuery(query string) string {
-	return strings.ReplaceAll(query, "\"", "")
+	// Remove double quotes
+	query = strings.ReplaceAll(query, "\"", "")
+
+	// Remove newlines
+	query = strings.ReplaceAll(query, "\n", " ")
+
+	// Remove tabs
+	query = strings.ReplaceAll(query, "\t", " ")
+
+	// Collapse multiple spaces into single space
+	for strings.Contains(query, "  ") {
+		query = strings.ReplaceAll(query, "  ", " ")
+	}
+
+	// Trim leading and trailing whitespace
+	return strings.TrimSpace(query)
 }

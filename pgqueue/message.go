@@ -4,18 +4,6 @@ import (
 	"time"
 )
 
-const (
-	// TableNameQueueMessages is the name of the main queue messages table.
-	TableNameQueueMessages = "queue_messages"
-)
-
-// BatchMessage represents a single message for batch enqueueing.
-type BatchMessage struct {
-	Payload        map[string]any
-	IdempotencyKey string
-	Options        []EnqueueOption
-}
-
 // Message represents a queue message with all its metadata.
 type Message struct {
 	// ID is the unique identifier for the message.
@@ -38,6 +26,10 @@ type Message struct {
 	// consumers until this time passes.
 	VisibleAt time.Time `bun:"visible_at"`
 
+	// ExpiresAt indicates when the message expires and should be moved to DLQ.
+	// If nil, the message never expires.
+	ExpiresAt *time.Time `bun:"expires_at"`
+
 	// Priority determines processing order (higher values processed first).
 	// Default is 0, valid range is -100 to 100.
 	Priority int `bun:"priority"`
@@ -58,65 +50,43 @@ type Message struct {
 	// UpdatedAt tracks the last modification time.
 	UpdatedAt time.Time `bun:"updated_at"`
 
-	// ExpiresAt indicates when the message expires and should be moved to DLQ.
-	// If nil, the message never expires.
-	ExpiresAt *time.Time `bun:"expires_at"`
-
 	// DLQAt indicates when the message was moved to the dead letter queue.
 	// If nil, the message is not in the DLQ.
 	DLQAt *time.Time `bun:"dlq_at"`
 
-	// DLQReason contains the error reason if the message is in the DLQ.
-	DLQReason *string `bun:"dlq_reason"`
+	// DLQReason contains structured error information if the message is in the DLQ.
+	DLQReason map[string]any `bun:"dlq_reason,type:jsonb"`
 }
 
-// EnqueueOptions contains options for enqueueing a message.
-type EnqueueOptions struct {
-	// QueueName identifies the queue (required).
-	QueueName string
-
-	// Payload contains the message data (required).
+// SingleMessage represents a single message for batch enqueueing.
+type SingleMessage struct {
+	// Payload contains the message data (required, can be empty map).
 	Payload map[string]any
 
+	// IdempotencyKey prevents duplicate messages (required, non-empty).
+	IdempotencyKey string
+
 	// MessageGroupID enables FIFO ordering within a group (optional).
+	// Messages with same group ID are processed sequentially.
+	// nil = standard (non-FIFO) queue.
 	MessageGroupID *string
 
-	// Priority determines processing order, default 0, range -100 to 100.
+	// Priority determines processing order (required).
+	// Range: -100 (lowest) to 100 (highest), 0 = normal.
 	Priority int
 
-	// Delay postpones message availability by the specified duration.
-	Delay time.Duration
+	// ScheduledAt is when the message becomes available (required).
+	// Use time.Now() for immediate availability.
+	ScheduledAt time.Time
 
-	// ScheduledAt sets an explicit time when the message becomes available.
-	// If set, this takes precedence over Delay.
-	ScheduledAt *time.Time
-
-	// MaxAttempts sets the maximum retry attempts, default 3.
+	// MaxAttempts is the retry limit before moving to DLQ (required).
+	// Must be >= 1.
 	MaxAttempts int
 
-	// ExpiresAt sets an explicit expiration time for the message.
-	// If set, the message will be moved to DLQ when dequeued after this time.
+	// ExpiresAt is the expiration time (optional).
+	// If set, message moves to DLQ after this time.
+	// nil = never expires.
 	ExpiresAt *time.Time
-
-	// IdempotencyKey is required for idempotency. Messages with the same key are deduplicated.
-	IdempotencyKey string
-}
-
-// DequeueOptions contains options for dequeuing messages.
-type DequeueOptions struct {
-	// QueueName identifies the queue to dequeue from (required).
-	QueueName string
-
-	// MessageGroupID filters messages to a specific group (optional).
-	MessageGroupID *string
-
-	// VisibilityTimeout controls how long the message remains invisible
-	// to other consumers. Default is 30 seconds.
-	VisibilityTimeout time.Duration
-
-	// BatchSize determines how many messages to dequeue at once.
-	// Default is 1, maximum recommended is 100.
-	BatchSize int
 }
 
 // QueueStats contains statistics about a queue.

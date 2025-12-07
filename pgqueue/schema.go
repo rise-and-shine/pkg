@@ -3,22 +3,51 @@ package pgqueue
 import (
 	"context"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/code19m/errx"
 	"github.com/uptrace/bun"
 )
 
+const (
+	// tableNameQueueMessages is the name of the main queue messages table.
+	tableNameQueueMessages = "queue_messages"
+
+	// migrationTimeout is the maximum time allowed for the database schema migration.
+	migrationTimeout = time.Second * 10
+)
+
 // generateSchemaSQL generates the schema SQL with the given schema name.
-func generateSchemaSQL(schema string) string { //nolint: funlen // can't be divided into smaller functions
+func generateSchemaSQL(schema string) string {
+	table := schema + "." + tableNameQueueMessages
+
+	var sql strings.Builder
+
+	writeSection(&sql, createSchema(schema))
+	writeSection(&sql, createMessagesTable(table))
+	writeSection(&sql, createIndexes(table))
+	writeSection(&sql, createTriggers(schema, table))
+	writeSection(&sql, createStatsView(schema, table))
+
+	return sql.String()
+}
+
+func writeSection(b *strings.Builder, content string) {
+	b.WriteString(content)
+	b.WriteString("\n")
+}
+
+func createSchema(schema string) string {
 	return fmt.Sprintf(`
--- PostgreSQL Queue Schema
--- This schema implements a production-ready message queue using PostgreSQL
-
 -- Create schema if not exists
-CREATE SCHEMA IF NOT EXISTS %s;
+CREATE SCHEMA IF NOT EXISTS %s;`, schema)
+}
 
+func createMessagesTable(table string) string {
+	return fmt.Sprintf(`
 -- Main queue messages table
-CREATE TABLE IF NOT EXISTS %s.%s (
+CREATE TABLE IF NOT EXISTS %s (
     id BIGSERIAL PRIMARY KEY,
 
     -- Routing
@@ -31,6 +60,7 @@ CREATE TABLE IF NOT EXISTS %s.%s (
     -- Timing Control
     scheduled_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     visible_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMPTZ,
 
     -- Processing
     priority INT NOT NULL DEFAULT 0,
@@ -44,46 +74,46 @@ CREATE TABLE IF NOT EXISTS %s.%s (
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    -- Expiration
-    expires_at TIMESTAMPTZ,
-
     -- DLQ
     dlq_at TIMESTAMPTZ,
-    dlq_reason TEXT
-);
+    dlq_reason JSONB
+);`, table)
+}
 
+func createIndexes(table string) string {
+	return fmt.Sprintf(`
 -- Critical indexes for performance
 
 -- Dequeue index (hot path) - optimized for the main dequeue query
 -- Partial index only on active messages (not in DLQ)
 CREATE INDEX IF NOT EXISTS idx_queue_messages_dequeue
-ON %s.%s (queue_name, priority DESC, id ASC)
-WHERE visible_at <= CURRENT_TIMESTAMP
-  AND scheduled_at <= CURRENT_TIMESTAMP
-  AND dlq_at IS NULL;
+ON %s (queue_name, priority DESC, visible_at, scheduled_at, id ASC)
+WHERE dlq_at IS NULL;
 
 -- Message group index for FIFO ordering
 CREATE INDEX IF NOT EXISTS idx_queue_messages_group
-ON %s.%s (message_group_id, priority DESC, id ASC)
+ON %s (message_group_id, priority DESC, id ASC)
 WHERE message_group_id IS NOT NULL
   AND dlq_at IS NULL;
 
--- Idempotency index for duplicate detection
-CREATE INDEX IF NOT EXISTS idx_queue_messages_idempotency
-ON %s.%s (queue_name, idempotency_key)
+-- Idempotency index for duplicate detection (unique constraint)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_queue_messages_idempotency
+ON %s (queue_name, idempotency_key)
 WHERE dlq_at IS NULL;
 
 -- Scheduled messages index
 CREATE INDEX IF NOT EXISTS idx_queue_messages_scheduled
-ON %s.%s (scheduled_at)
-WHERE scheduled_at > CURRENT_TIMESTAMP
-  AND dlq_at IS NULL;
+ON %s (scheduled_at)
+WHERE dlq_at IS NULL;
 
 -- DLQ index for querying dead letter queue
 CREATE INDEX IF NOT EXISTS idx_queue_messages_dlq
-ON %s.%s (queue_name, dlq_at DESC)
-WHERE dlq_at IS NOT NULL;
+ON %s (queue_name, dlq_at DESC)
+WHERE dlq_at IS NOT NULL;`, table, table, table, table, table)
+}
 
+func createTriggers(schema, table string) string {
+	return fmt.Sprintf(`
 -- Update timestamp trigger
 CREATE OR REPLACE FUNCTION %s.update_queue_messages_updated_at()
 RETURNS TRIGGER AS $$
@@ -93,31 +123,15 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trigger_queue_messages_updated_at ON %s;
 CREATE TRIGGER trigger_queue_messages_updated_at
-    BEFORE UPDATE ON %s.%s
+    BEFORE UPDATE ON %s
     FOR EACH ROW
-    EXECUTE FUNCTION %s.update_queue_messages_updated_at();
+    EXECUTE FUNCTION %s.update_queue_messages_updated_at();`, schema, table, table, schema)
+}
 
--- Optional: Dead letter queue archive table
--- Use this to keep a permanent record of failed messages
-CREATE TABLE IF NOT EXISTS %s.queue_dlq (
-    id BIGSERIAL PRIMARY KEY,
-    original_id BIGINT,
-    queue_name VARCHAR(255) NOT NULL,
-    message_group_id VARCHAR(255),
-    payload JSONB NOT NULL,
-    priority INT NOT NULL,
-    attempts INT NOT NULL,
-    max_attempts INT NOT NULL,
-    idempotency_key VARCHAR(255) NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL,
-    dlq_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    dlq_reason TEXT
-);
-
-CREATE INDEX IF NOT EXISTS idx_queue_dlq_queue_name
-ON %s.queue_dlq (queue_name, dlq_at DESC);
-
+func createStatsView(schema, table string) string {
+	return fmt.Sprintf(`
 -- Stats view for monitoring
 CREATE OR REPLACE VIEW %s.queue_stats AS
 SELECT
@@ -134,36 +148,15 @@ SELECT
     MIN(created_at) FILTER (WHERE dlq_at IS NULL) as oldest_message,
     AVG(attempts) FILTER (WHERE dlq_at IS NULL) as avg_attempts,
     PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY attempts) FILTER (WHERE dlq_at IS NULL) as p95_attempts
-FROM %s.%s
-GROUP BY queue_name;
-`,
-		schema,                 // CREATE SCHEMA
-		schema,                 // CREATE TABLE schema
-		TableNameQueueMessages, // CREATE TABLE table name
-		schema,                 // idx_queue_messages_dequeue schema
-		TableNameQueueMessages, // idx_queue_messages_dequeue table
-		schema,                 // idx_queue_messages_group schema
-		TableNameQueueMessages, // idx_queue_messages_group table
-		schema,                 // idx_queue_messages_idempotency schema
-		TableNameQueueMessages, // idx_queue_messages_idempotency table
-		schema,                 // idx_queue_messages_scheduled schema
-		TableNameQueueMessages, // idx_queue_messages_scheduled table
-		schema,                 // idx_queue_messages_dlq schema
-		TableNameQueueMessages, // idx_queue_messages_dlq table
-		schema,                 // CREATE FUNCTION
-		schema,                 // CREATE TRIGGER table schema
-		TableNameQueueMessages, // CREATE TRIGGER table name
-		schema,                 // EXECUTE FUNCTION
-		schema,                 // CREATE TABLE queue_dlq
-		schema,                 // idx_queue_dlq_queue_name
-		schema,                 // CREATE VIEW
-		schema,                 // FROM schema
-		TableNameQueueMessages, // FROM table name
-	)
+FROM %s
+GROUP BY queue_name;`, schema, table)
 }
 
-// migrate executes the database schema migration.
-func migrate(ctx context.Context, db *bun.DB, schema string) error {
+// migrate creates the queue schema and tables.
+func migrate(db *bun.DB, schema string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), migrationTimeout)
+	defer cancel()
+
 	sql := generateSchemaSQL(schema)
 	_, err := db.ExecContext(ctx, sql)
 	return errx.Wrap(err)
