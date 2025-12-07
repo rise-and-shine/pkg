@@ -34,7 +34,19 @@ func (q *queue) DequeueTx(ctx context.Context, tx *bun.Tx, params DequeueParams)
 		return nil, errx.Wrap(err)
 	}
 
-	// For message groups, acquire advisory lock to ensure FIFO ordering
+	// DEADLOCK RISK: Acquire advisory lock for message group FIFO ordering.
+	//
+	// Advisory locks are necessary to enforce strict FIFO ordering within message groups.
+	// However, if this process crashes while holding the lock, other workers attempting
+	// to dequeue from the same message group will block indefinitely.
+	//
+	// MITIGATION: Ensure the PostgreSQL connection is configured with timeouts:
+	//   - statement_timeout: Forces lock release if any statement takes too long
+	//   - idle_in_transaction_session_timeout: Forces transaction abort if idle too long
+	//
+	// These timeouts ensure that even if a worker crashes, the lock will be
+	// automatically released within the configured timeout period, preventing deadlocks.
+	// See the pgqueue package documentation for recommended timeout values.
 	if params.MessageGroupID != nil && *params.MessageGroupID != "" {
 		lockID := calculateLockID(params.QueueName, *params.MessageGroupID)
 		_, err = tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock(?)", lockID)
@@ -54,10 +66,6 @@ func (q *queue) DequeueTx(ctx context.Context, tx *bun.Tx, params DequeueParams)
 	)
 	if err != nil {
 		return nil, errx.Wrap(err)
-	}
-
-	if len(messages) == 0 {
-		return nil, errx.New("[pgqueue]: no messages available", errx.WithCode(CodeNoMessages))
 	}
 
 	// Check for each message if it has expired or reached max attempts

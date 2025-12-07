@@ -6,12 +6,7 @@ import (
 	"time"
 
 	"github.com/code19m/errx"
-	"github.com/rise-and-shine/pkg/pg"
 	"github.com/uptrace/bun"
-)
-
-const (
-	idempotencyKeyUniqueConstraint = "idx_queue_messages_idempotency"
 )
 
 // tableName returns the fully qualified table name (schema.table).
@@ -50,10 +45,6 @@ func (q *queue) insertMessage(ctx context.Context, db bun.IDB, msg *Message) err
 		msg.IdempotencyKey,
 		msg.Attempts,
 	).Scan(ctx, &msg.ID)
-
-	if pg.ConstraintName(err) == idempotencyKeyUniqueConstraint {
-		return errx.Wrap(err, errx.WithCode(CodeDuplicateMessage))
-	}
 
 	return errx.Wrap(err)
 }

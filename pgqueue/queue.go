@@ -4,6 +4,28 @@
 // It leverages PostgreSQL's SKIP LOCKED feature for efficient concurrent message processing,
 // supports features like message groups (FIFO ordering), priority queues, delayed messages,
 // idempotency, and automatic retries with exponential backoff.
+//
+// # IMPORTANT: Deadlock Prevention
+//
+// This package uses PostgreSQL advisory locks for FIFO message group ordering.
+// If a worker process crashes while holding an advisory lock, other workers waiting
+// to dequeue from the same message group will block indefinitely, causing a deadlock.
+//
+// To prevent deadlocks, configure your PostgreSQL connection with these timeouts:
+//
+//   - statement_timeout: Maximum duration for any single statement (e.g., '30s').
+//     When exceeded, the statement is aborted and the advisory lock is released.
+//
+//   - idle_in_transaction_session_timeout: Maximum idle time allowed within a transaction
+//     (e.g., '60s'). When exceeded, the transaction is aborted and locks are released.
+//
+// These timeouts ensure that even if a worker crashes, locks will be automatically
+// released within the configured timeout period, preventing indefinite hangs.
+//
+// Recommended configuration:
+//
+//	statement_timeout = '30s' to '5m' (depends on your message processing time)
+//	idle_in_transaction_session_timeout = '1m' to '10m'
 package pgqueue
 
 import (
