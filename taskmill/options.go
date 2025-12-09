@@ -1,6 +1,10 @@
 package taskmill
 
-import "time"
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
 
 // EnqueueOption is a functional option for customizing task enqueueing.
 type EnqueueOption func(*enqueueOptions)
@@ -12,6 +16,7 @@ type enqueueOptions struct {
 	scheduledAt    time.Time
 	expiresAt      *time.Time
 	messageGroupID *string
+	idempotencyKey string
 }
 
 func defaultEnqueueOptions() *enqueueOptions {
@@ -21,6 +26,7 @@ func defaultEnqueueOptions() *enqueueOptions {
 		scheduledAt:    time.Now(),
 		expiresAt:      nil,
 		messageGroupID: nil,
+		idempotencyKey: uuid.NewString(),
 	}
 }
 
@@ -61,5 +67,14 @@ func WithExpiresAt(expiresAt time.Time) EnqueueOption {
 func WithMessageGroupID(groupID string) EnqueueOption {
 	return func(opts *enqueueOptions) {
 		opts.messageGroupID = &groupID
+	}
+}
+
+// WithIdempotencyKey specifies a custom idempotency key for deduplication.
+// If not specified, a key is generated from uuid.NewString().
+// Use this when you need deterministic deduplication based on business logic.
+func WithIdempotencyKey(key string) EnqueueOption {
+	return func(opts *enqueueOptions) {
+		opts.idempotencyKey = key
 	}
 }

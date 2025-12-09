@@ -41,25 +41,61 @@ func NewWorker(
 	messageGroupID *string,
 	concurrency int,
 	pollInterval time.Duration,
+	visibilityTimeout time.Duration,
 	batchSize int,
 	processTimeout time.Duration,
-) Worker {
-	return &worker{
-		db:             db,
-		serviceName:    serviceName,
-		serviceVersion: serviceVersion,
-		queue:          queue,
-		queueName:      queueName,
-		messageGroupID: messageGroupID,
-		concurrency:    concurrency,
-		pollInterval:   pollInterval,
-		batchSize:      batchSize,
-		processTimeout: processTimeout,
-		tasksMap:       make(map[string]ucdef.AsyncTask[any]),
-		stopCh:         make(chan struct{}),
-		stoppedCh:      make(chan struct{}),
-		logger:         logger.Named("taskmill.worker"),
+) (Worker, error) {
+	if db == nil {
+		return nil, errx.New("[taskmill]: db is required")
 	}
+	if queue == nil {
+		return nil, errx.New("[taskmill]: queue is required")
+	}
+	if serviceName == "" {
+		return nil, errx.New("[taskmill]: serviceName is required")
+	}
+	if serviceVersion == "" {
+		return nil, errx.New("[taskmill]: serviceVersion is required")
+	}
+	if queueName == "" {
+		return nil, errx.New("[taskmill]: queueName is required")
+	}
+	if concurrency < 1 || concurrency > 1000 {
+		return nil, errx.New("[taskmill]: concurrency must be between 1 and 1000")
+	}
+	if pollInterval <= 0 {
+		return nil, errx.New("[taskmill]: pollInterval must be positive")
+	}
+	if visibilityTimeout <= 0 {
+		return nil, errx.New("[taskmill]: visibilityTimeout must be positive")
+	}
+	if batchSize < 1 || batchSize > 100 {
+		return nil, errx.New("[taskmill]: batchSize must be between 1 and 100")
+	}
+	if processTimeout <= 0 {
+		return nil, errx.New("[taskmill]: processTimeout must be positive")
+	}
+	if visibilityTimeout < processTimeout {
+		return nil, errx.New("[taskmill]: visibilityTimeout should be >= processTimeout to avoid duplicate processing")
+	}
+
+	return &worker{
+		db:                db,
+		serviceName:       serviceName,
+		serviceVersion:    serviceVersion,
+		queue:             queue,
+		queueName:         queueName,
+		messageGroupID:    messageGroupID,
+		concurrency:       concurrency,
+		pollInterval:      pollInterval,
+		visibilityTimeout: visibilityTimeout,
+		batchSize:         batchSize,
+		processTimeout:    processTimeout,
+		tasksMap:          make(map[string]ucdef.AsyncTask[any]),
+		stopCh:            make(chan struct{}),
+		stoppedCh:         make(chan struct{}),
+		logger:            logger.Named("taskmill.worker"),
+	}, nil
 }
 
 const (
@@ -76,10 +112,11 @@ type worker struct {
 	queueName      string
 	messageGroupID *string
 
-	concurrency    int
-	pollInterval   time.Duration
-	batchSize      int
-	processTimeout time.Duration
+	concurrency       int
+	pollInterval      time.Duration
+	visibilityTimeout time.Duration
+	batchSize         int
+	processTimeout    time.Duration
 
 	tasksMap map[string]ucdef.AsyncTask[any]
 	mu       sync.RWMutex
@@ -163,7 +200,7 @@ func (w *worker) dequeueMessages(ctx context.Context) ([]pgqueue.Message, error)
 	params := pgqueue.DequeueParams{
 		QueueName:         w.queueName,
 		MessageGroupID:    w.messageGroupID,
-		VisibilityTimeout: w.pollInterval,
+		VisibilityTimeout: w.visibilityTimeout,
 		BatchSize:         w.batchSize,
 	}
 
@@ -231,6 +268,7 @@ func (w *worker) ackMessage(ctx context.Context, message pgqueue.Message) error 
 	if err != nil {
 		return errx.Wrap(err)
 	}
+	defer tx.Rollback() //nolint:errcheck // rollback is no-op after commit
 
 	err = w.queue.AckTx(ctx, &tx, message.ID)
 	if err != nil {
@@ -249,6 +287,7 @@ func (w *worker) nackMessage(ctx context.Context, message pgqueue.Message, reaso
 	if err != nil {
 		return errx.Wrap(err)
 	}
+	defer tx.Rollback() //nolint:errcheck // rollback is no-op after commit
 
 	err = w.queue.NackTx(ctx, &tx, message.ID, reason)
 	if err != nil {
@@ -357,7 +396,7 @@ func (w *worker) processWithTracing(next handleFunc) handleFunc {
 }
 
 func (w *worker) processWithRecovery(next handleFunc) handleFunc {
-	return func(ctx context.Context, m pgqueue.Message) error {
+	return func(ctx context.Context, m pgqueue.Message) (err error) {
 		defer func() {
 			if r := recover(); r != nil {
 				w.logger.
@@ -380,6 +419,11 @@ func (w *worker) processWithRecovery(next handleFunc) handleFunc {
 						map[string]string{"recover": fmt.Sprintf("%v", r)},
 					)
 				}()
+
+				// Return error so message gets nacked instead of acked
+				err = errx.New("taskmill worker paniced at recovery wrapper", errx.WithDetails(errx.D{
+					"panic": fmt.Sprintf("%v", r),
+				}))
 			}
 		}()
 		return next(ctx, m)

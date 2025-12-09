@@ -212,10 +212,16 @@ func (s *scheduler) addSchedule(schedule Schedule) error {
 }
 
 func (s *scheduler) checkSchedules(now time.Time) {
+	// Copy schedules while holding read lock to avoid deadlock
+	// (scheduleTask needs write lock to update nextRun)
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-
+	toCheck := make([]scheduleTrack, 0, len(s.schedulesMap))
 	for _, st := range s.schedulesMap {
+		toCheck = append(toCheck, st)
+	}
+	s.mu.RUnlock()
+
+	for _, st := range toCheck {
 		if now.Before(st.nextRun) {
 			continue
 		}

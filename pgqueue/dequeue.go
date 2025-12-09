@@ -68,7 +68,10 @@ func (q *queue) DequeueTx(ctx context.Context, tx *bun.Tx, params DequeueParams)
 		return nil, errx.Wrap(err)
 	}
 
-	// Check for each message if it has expired or reached max attempts
+	// Check for each message if it has expired or reached max attempts.
+	// Filter out messages that are moved to DLQ so they're not returned to the caller.
+	validMessages := make([]Message, 0, len(messages))
+
 	for _, msg := range messages {
 		if msg.ExpiresAt != nil && msg.ExpiresAt.Before(time.Now()) {
 			// Move expired message to DLQ
@@ -78,6 +81,7 @@ func (q *queue) DequeueTx(ctx context.Context, tx *bun.Tx, params DequeueParams)
 			if err != nil {
 				return nil, errx.Wrap(err)
 			}
+			continue // Don't include in returned messages
 		}
 
 		if msg.MaxAttempts > 0 && msg.Attempts >= msg.MaxAttempts {
@@ -88,8 +92,11 @@ func (q *queue) DequeueTx(ctx context.Context, tx *bun.Tx, params DequeueParams)
 			if err != nil {
 				return nil, errx.Wrap(err)
 			}
+			continue // Don't include in returned messages
 		}
+
+		validMessages = append(validMessages, msg)
 	}
 
-	return messages, nil
+	return validMessages, nil
 }

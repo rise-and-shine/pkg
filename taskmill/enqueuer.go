@@ -46,7 +46,7 @@ func (e *enqueuer) Enqueue(
 
 	singleMessage := pgqueue.SingleMessage{
 		Payload:        buildPayload(ctx, operationID, payload),
-		IdempotencyKey: uuid.NewString(),
+		IdempotencyKey: options.idempotencyKey,
 		MessageGroupID: options.messageGroupID,
 		Priority:       options.priority,
 		ScheduledAt:    options.scheduledAt,
@@ -68,6 +68,11 @@ func (e *enqueuer) Enqueue(
 	}
 
 	return msgIDs[0], nil
+}
+
+// generateIdempotencyKey creates a unique key.
+func generateIdempotencyKey() string {
+	return uuid.NewString()
 }
 
 func buildPayload(ctx context.Context, operationID string, payload any) map[string]any {
