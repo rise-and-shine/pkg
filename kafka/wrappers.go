@@ -120,12 +120,12 @@ func (c *Consumer) handlerWithAlerting(next HandleFunc) HandleFunc {
 		}
 		details["error_trace"] = e.Trace()
 
-		newCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), alertTimeout)
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), alertTimeout)
 
 		go func() {
-			defer cancel() // ensure newCtx is cancelled after sending alert
+			defer cancel()
 
-			sendErr := alert.SendError(newCtx, e.Code(), err.Error(), operation, details)
+			sendErr := alert.SendError(ctx, e.Code(), err.Error(), operation, details)
 			if sendErr != nil {
 				logger.With("alert_send_error", sendErr).Warn("failed to send error alert")
 			}
@@ -146,8 +146,6 @@ func (c *Consumer) handlerWithLogging(next HandleFunc) HandleFunc {
 		withRecovery := c.handlerWithRecovery(next)
 		err := withRecovery(ctx, msg)
 
-		duration := time.Since(start)
-
 		headers := lo.SliceToMap(msg.Headers, func(h *sarama.RecordHeader) (string, string) {
 			return string(h.Key), string(h.Value)
 		})
@@ -157,7 +155,7 @@ func (c *Consumer) handlerWithLogging(next HandleFunc) HandleFunc {
 			"partition", msg.Partition,
 			"offset", msg.Offset,
 			"key", string(msg.Key),
-			"duration", duration.String(),
+			"duration", time.Since(start).Round(time.Microsecond),
 			"headers", headers,
 		)
 

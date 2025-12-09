@@ -4,7 +4,12 @@ import (
 	"context"
 
 	"github.com/code19m/errx"
+	"github.com/rise-and-shine/pkg/pg"
 	"github.com/uptrace/bun"
+)
+
+const (
+	CodeDuplicateMessage = "DUPLICATE_MESSAGE"
 )
 
 // EnqueueBatchTx adds multiple messages to the queue within a transaction.
@@ -74,6 +79,9 @@ func (q *queue) enqueueSingle(
 
 	// Insert the message
 	err = q.insertMessage(ctx, db, msg)
+	if pg.ConstraintName(err) == idempotencyKeyUniqueConstraint {
+		return 0, errx.Wrap(err, errx.WithCode(CodeDuplicateMessage))
+	}
 	if err != nil {
 		return 0, errx.Wrap(err)
 	}

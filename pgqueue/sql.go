@@ -9,6 +9,10 @@ import (
 	"github.com/uptrace/bun"
 )
 
+const (
+	idempotencyKeyUniqueConstraint = "idx_queue_messages_idempotency"
+)
+
 // tableName returns the fully qualified table name (schema.table).
 func (q *queue) tableName() string {
 	return fmt.Sprintf("%s.%s", q.schema, tableNameQueueMessages)
