@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/code19m/errx"
-	"github.com/google/uuid"
 	"github.com/rise-and-shine/pkg/pgqueue"
 	"github.com/uptrace/bun"
 	"go.opentelemetry.io/otel"
@@ -20,11 +19,19 @@ type Enqueuer interface {
 	Enqueue(ctx context.Context, tx *bun.Tx, operationID string, payload any, opts ...EnqueueOption) (int64, error)
 }
 
-func NewEnqueuer(queue pgqueue.Queue, queueName string) Enqueuer {
+// NewEnqueuer creates a new Enqueuer instance.
+func NewEnqueuer(queue pgqueue.Queue, queueName string) (Enqueuer, error) {
+	if queue == nil {
+		return nil, errx.New("[taskmill]: Queue is required")
+	}
+	if queueName == "" {
+		return nil, errx.New("[taskmill]: QueueName is required")
+	}
+
 	return &enqueuer{
 		queue:     queue,
 		queueName: queueName,
-	}
+	}, nil
 }
 
 type enqueuer struct {
@@ -68,11 +75,6 @@ func (e *enqueuer) Enqueue(
 	}
 
 	return msgIDs[0], nil
-}
-
-// generateIdempotencyKey creates a unique key.
-func generateIdempotencyKey() string {
-	return uuid.NewString()
 }
 
 func buildPayload(ctx context.Context, operationID string, payload any) map[string]any {

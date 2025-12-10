@@ -50,20 +50,28 @@ type Schedule struct {
 	EnqueueOptions []EnqueueOption
 }
 
-func NewScheduler(db *bun.DB, enqueuer Enqueuer) (Scheduler, error) {
+// NewScheduler creates a new Scheduler instance.
+func NewScheduler(config *SchedulerConfig) (Scheduler, error) {
+	config.setDefaults()
+
+	if err := config.validate(); err != nil {
+		return nil, err
+	}
+
 	parser := cron.NewParser(
 		cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow,
 	)
 
 	scheduler := &scheduler{
-		db:           db,
-		enqueuer:     enqueuer,
-		cronParser:   parser,
-		schedulesMap: map[string]scheduleTrack{},
-		mu:           sync.RWMutex{},
-		stopCh:       make(chan struct{}),
-		stoppedCh:    make(chan struct{}),
-		logger:       logger.Named("taskmill.scheduler"),
+		db:            config.DB,
+		enqueuer:      config.Enqueuer,
+		checkInterval: config.CheckInterval,
+		cronParser:    parser,
+		schedulesMap:  map[string]scheduleTrack{},
+		mu:            sync.RWMutex{},
+		stopCh:        make(chan struct{}),
+		stoppedCh:     make(chan struct{}),
+		logger:        logger.Named("taskmill.scheduler"),
 	}
 
 	return scheduler, nil
@@ -77,8 +85,9 @@ const (
 type scheduler struct {
 	db *bun.DB
 
-	enqueuer   Enqueuer
-	cronParser cron.Parser
+	enqueuer      Enqueuer
+	checkInterval time.Duration
+	cronParser    cron.Parser
 
 	schedulesMap map[string]scheduleTrack
 	mu           sync.RWMutex
@@ -113,7 +122,7 @@ func (s *scheduler) TriggerNow(ctx context.Context, operationID string) error {
 	s.mu.RUnlock()
 	if !ok {
 		return errx.New(
-			"schedule not found",
+			"[taskmill]: schedule not found",
 			errx.WithCode(CodeScheduleNotFound),
 			errx.WithDetails(errx.D{"operation_id": operationID}),
 		)
@@ -155,7 +164,7 @@ func (s *scheduler) ListSchedules() []Schedule {
 }
 
 func (s *scheduler) Start(ctx context.Context) error {
-	ticker := time.NewTicker(5 * time.Second)
+	ticker := time.NewTicker(s.checkInterval)
 	defer ticker.Stop()
 
 	for {
@@ -197,7 +206,7 @@ func (s *scheduler) addSchedule(schedule Schedule) error {
 	s.schedulesMap[schedule.OperationID] = scheduleTrack{
 		schedule:     schedule,
 		cronSchedule: cronSchedule,
-		lastRun:      now,
+		lastRun:      time.Time{}, // zero time - task hasn't run yet
 		nextRun:      nextRun,
 	}
 	s.mu.Unlock()
@@ -206,7 +215,7 @@ func (s *scheduler) addSchedule(schedule Schedule) error {
 		"operation_id", schedule.OperationID,
 		"cron_pattern", schedule.CronPattern,
 		"next_run", nextRun.Format(time.RFC3339),
-	).Info("[taskmill]: schedule added")
+	).Info("[taskmill]: schedule registered")
 
 	return nil
 }
@@ -277,12 +286,13 @@ func (s *scheduler) scheduleTask(st scheduleTrack) error {
 		return errx.Wrap(err)
 	}
 
-	// Update next run
-	st.lastRun = st.nextRun
-	st.nextRun = st.cronSchedule.Next(st.nextRun)
-
+	// Update next run atomically - re-fetch from map to avoid race condition
 	s.mu.Lock()
-	s.schedulesMap[st.schedule.OperationID] = st
+	if current, ok := s.schedulesMap[st.schedule.OperationID]; ok {
+		current.lastRun = st.nextRun
+		current.nextRun = current.cronSchedule.Next(st.nextRun)
+		s.schedulesMap[st.schedule.OperationID] = current
+	}
 	s.mu.Unlock()
 
 	return nil

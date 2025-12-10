@@ -16,6 +16,10 @@ import (
 	"github.com/rise-and-shine/pkg/pgqueue"
 	"github.com/rise-and-shine/pkg/ucdef"
 	"github.com/uptrace/bun"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/propagation"
+	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -32,65 +36,26 @@ type Worker interface {
 	Stop() error
 }
 
-func NewWorker(
-	db *bun.DB,
-	serviceName string,
-	serviceVersion string,
-	queue pgqueue.Queue,
-	queueName string,
-	messageGroupID *string,
-	concurrency int,
-	pollInterval time.Duration,
-	visibilityTimeout time.Duration,
-	batchSize int,
-	processTimeout time.Duration,
-) (Worker, error) {
-	if db == nil {
-		return nil, errx.New("[taskmill]: db is required")
-	}
-	if queue == nil {
-		return nil, errx.New("[taskmill]: queue is required")
-	}
-	if serviceName == "" {
-		return nil, errx.New("[taskmill]: serviceName is required")
-	}
-	if serviceVersion == "" {
-		return nil, errx.New("[taskmill]: serviceVersion is required")
-	}
-	if queueName == "" {
-		return nil, errx.New("[taskmill]: queueName is required")
-	}
-	if concurrency < 1 || concurrency > 1000 {
-		return nil, errx.New("[taskmill]: concurrency must be between 1 and 1000")
-	}
-	if pollInterval <= 0 {
-		return nil, errx.New("[taskmill]: pollInterval must be positive")
-	}
-	if visibilityTimeout <= 0 {
-		return nil, errx.New("[taskmill]: visibilityTimeout must be positive")
-	}
-	if batchSize < 1 || batchSize > 100 {
-		return nil, errx.New("[taskmill]: batchSize must be between 1 and 100")
-	}
-	if processTimeout <= 0 {
-		return nil, errx.New("[taskmill]: processTimeout must be positive")
-	}
-	if visibilityTimeout < processTimeout {
-		return nil, errx.New("[taskmill]: visibilityTimeout should be >= processTimeout to avoid duplicate processing")
+// NewWorker creates a new Worker instance.
+func NewWorker(config *WorkerConfig) (Worker, error) {
+	config.setDefaults()
+
+	if err := config.validate(); err != nil {
+		return nil, err
 	}
 
 	return &worker{
-		db:                db,
-		serviceName:       serviceName,
-		serviceVersion:    serviceVersion,
-		queue:             queue,
-		queueName:         queueName,
-		messageGroupID:    messageGroupID,
-		concurrency:       concurrency,
-		pollInterval:      pollInterval,
-		visibilityTimeout: visibilityTimeout,
-		batchSize:         batchSize,
-		processTimeout:    processTimeout,
+		db:                config.DB,
+		serviceName:       config.ServiceName,
+		serviceVersion:    config.ServiceVersion,
+		queue:             config.Queue,
+		queueName:         config.QueueName,
+		messageGroupID:    config.MessageGroupID,
+		concurrency:       config.Concurrency,
+		pollInterval:      config.PollInterval,
+		visibilityTimeout: config.VisibilityTimeout,
+		batchSize:         config.BatchSize,
+		processTimeout:    config.ProcessTimeout,
 		tasksMap:          make(map[string]ucdef.AsyncTask[any]),
 		stopCh:            make(chan struct{}),
 		stoppedCh:         make(chan struct{}),
@@ -135,12 +100,14 @@ func (w *worker) RegisterAsyncTask(task ucdef.AsyncTask[any]) {
 }
 
 func (w *worker) Start(ctx context.Context) error {
-	wg := sync.WaitGroup{}
+	var wg sync.WaitGroup
 
 	for range w.concurrency {
-		wg.Go(func() {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
 			w.workerLoop(ctx)
-		})
+		}()
 	}
 
 	wg.Wait()
@@ -222,12 +189,16 @@ type handleFunc func(context.Context, pgqueue.Message) error
 func (w *worker) processMessage(ctx context.Context, message pgqueue.Message) error {
 	operationID, ok := message.Payload["_operation_id"].(string)
 	if !ok {
-		return errx.New("[taskmill]: task message missing _operation_id", errx.WithDetails(errx.D{"message": message}))
+		return errx.New("[taskmill]: task message missing _operation_id",
+			errx.WithCode(CodeInvalidPayload),
+			errx.WithDetails(errx.D{"message": message}))
 	}
 
 	taskPayload, ok := message.Payload["payload"]
 	if !ok {
-		return errx.New("[taskmill]: task message missing payload", errx.WithDetails(errx.D{"message": message}))
+		return errx.New("[taskmill]: task message missing payload",
+			errx.WithCode(CodeInvalidPayload),
+			errx.WithDetails(errx.D{"message": message}))
 	}
 
 	w.mu.RLock()
@@ -235,7 +206,9 @@ func (w *worker) processMessage(ctx context.Context, message pgqueue.Message) er
 	w.mu.RUnlock()
 
 	if !exists {
-		return errx.New("[taskmill]: task not registered", errx.WithDetails(errx.D{"operation_id": operationID}))
+		return errx.New("[taskmill]: task not registered",
+			errx.WithCode(CodeTaskNotRegistered),
+			errx.WithDetails(errx.D{"operation_id": operationID}))
 	}
 
 	err := executeWithRecovery(ctx, task, taskPayload)
@@ -328,7 +301,7 @@ func (w *worker) processWithLogging(next handleFunc) handleFunc {
 		if err != nil {
 			logger.Errorx(err)
 		} else {
-			logger.Info("task processed successfully")
+			logger.Info("[taskmill]: task processed successfully")
 		}
 
 		return err
@@ -360,7 +333,7 @@ func (w *worker) processWithAlerting(next handleFunc) handleFunc {
 
 			senderr := alert.SendError(ctx, e.Code(), err.Error(), operation, details)
 			if senderr != nil {
-				logger.With("alert_send_error", senderr).Warn("failed to send error alert")
+				logger.With("alert_send_error", senderr).Warn("[taskmill]: failed to send error alert")
 			}
 		}()
 
@@ -391,8 +364,59 @@ func (w *worker) processWithTimeout(next handleFunc) handleFunc {
 
 func (w *worker) processWithTracing(next handleFunc) handleFunc {
 	return func(ctx context.Context, m pgqueue.Message) error {
-		return next(ctx, m)
+		// Extract trace context from message payload
+		ctx = extractTraceContext(ctx, m.Payload)
+
+		// start a new span
+		ctx, span := otel.Tracer("").Start(ctx, fmt.Sprintf("PROCESS %s", m.Payload["_operation_id"]),
+			trace.WithAttributes(
+				semconv.MessagingSystem("postgres"),
+				semconv.MessagingOperationProcess,
+				semconv.MessagingMessageID(fmt.Sprintf("%d", m.ID)),
+			),
+			trace.WithSpanKind(trace.SpanKindConsumer),
+		)
+
+		// call the next handler
+		err := next(ctx, m)
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+		}
+
+		span.End()
+		return err
 	}
+}
+
+// extractTraceContext extracts OpenTelemetry trace context from the message payload.
+// If the trace context is not found or invalid, returns the original context unchanged.
+func extractTraceContext(ctx context.Context, payload map[string]any) context.Context {
+	traceCtxRaw, ok := payload["_trace_ctx"]
+	if !ok {
+		return ctx
+	}
+
+	// The trace context was stored as map[string]string
+	traceCtxMap, ok := traceCtxRaw.(map[string]any)
+	if !ok {
+		return ctx
+	}
+
+	// Convert map[string]any to map[string]string for the propagator
+	carrier := make(map[string]string)
+	for k, v := range traceCtxMap {
+		if str, ok := v.(string); ok {
+			carrier[k] = str
+		}
+	}
+
+	if len(carrier) == 0 {
+		return ctx
+	}
+
+	propagator := otel.GetTextMapPropagator()
+	return propagator.Extract(ctx, propagation.MapCarrier(carrier))
 }
 
 func (w *worker) processWithRecovery(next handleFunc) handleFunc {
@@ -404,7 +428,7 @@ func (w *worker) processWithRecovery(next handleFunc) handleFunc {
 						"recover", r,
 						"message", m,
 					).
-					Error("taskmill worker paniced at recovery wrapper")
+					Error("[taskmill]: worker panicked at recovery wrapper")
 
 				alertctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), extendedContextTimeout)
 				operationID := fmt.Sprintf("async-task: %s", m.Payload["_operation_id"])
@@ -414,14 +438,14 @@ func (w *worker) processWithRecovery(next handleFunc) handleFunc {
 					_ = alert.SendError(
 						alertctx,
 						"PANIC",
-						"taskmill worker paniced at recovery wrapper",
+						"[taskmill]: worker panicked at recovery wrapper",
 						operationID,
 						map[string]string{"recover": fmt.Sprintf("%v", r)},
 					)
 				}()
 
 				// Return error so message gets nacked instead of acked
-				err = errx.New("taskmill worker paniced at recovery wrapper", errx.WithDetails(errx.D{
+				err = errx.New("[taskmill]: worker panicked at recovery wrapper", errx.WithDetails(errx.D{
 					"panic": fmt.Sprintf("%v", r),
 				}))
 			}
@@ -436,7 +460,7 @@ func executeWithRecovery(ctx context.Context, task ucdef.AsyncTask[any], payload
 			stackTrace := make([]byte, 4096) // 4KB
 			stackTrace = stackTrace[:runtime.Stack(stackTrace, false)]
 
-			err = errx.New("taskmill worker paniced at async-task execution wrapper", errx.WithDetails(errx.D{
+			err = errx.New("[taskmill]: worker panicked at task execution", errx.WithDetails(errx.D{
 				"stack_trace":   string(stackTrace),
 				"panic_message": fmt.Sprintf("%v", r),
 			}))
