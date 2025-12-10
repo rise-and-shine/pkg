@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"runtime"
+	"strconv"
 	"sync"
 	"time"
 
@@ -43,7 +44,7 @@ func NewWorker(db *bun.DB, queueName string, opts ...WorkerOption) (Worker, erro
 		opt(&options)
 	}
 
-	queue, err := pgqueue.NewQueue(schemaName, retryStrategy)
+	queue, err := pgqueue.NewQueue(getSchemaName(), getRetryStrategy())
 	if err != nil {
 		return nil, errx.Wrap(err)
 	}
@@ -373,7 +374,7 @@ func (w *worker) processWithTracing(next handleFunc) handleFunc {
 			trace.WithAttributes(
 				semconv.MessagingSystem("postgres"),
 				semconv.MessagingOperationProcess,
-				semconv.MessagingMessageID(fmt.Sprintf("%d", m.ID)),
+				semconv.MessagingMessageID(strconv.FormatInt(m.ID, 10)),
 			),
 			trace.WithSpanKind(trace.SpanKindConsumer),
 		)
@@ -393,14 +394,14 @@ func (w *worker) processWithTracing(next handleFunc) handleFunc {
 // extractTraceContext extracts OpenTelemetry trace context from the message payload.
 // If the trace context is not found or invalid, returns the original context unchanged.
 func extractTraceContext(ctx context.Context, payload map[string]any) context.Context {
-	traceCtxRaw, ok := payload["_trace_ctx"]
-	if !ok {
+	traceCtxRaw, exists := payload["_trace_ctx"]
+	if !exists {
 		return ctx
 	}
 
 	// The trace context was stored as map[string]string
-	traceCtxMap, ok := traceCtxRaw.(map[string]any)
-	if !ok {
+	traceCtxMap, exists := traceCtxRaw.(map[string]any)
+	if !exists {
 		return ctx
 	}
 

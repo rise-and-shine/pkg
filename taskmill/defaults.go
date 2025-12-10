@@ -7,10 +7,13 @@ import (
 	"github.com/rise-and-shine/pkg/taskmill/internal/pgqueue"
 )
 
-var (
-	schemaName    = "taskmill"
-	retryStrategy = pgqueue.NewExponentialBackoffStrategy()
-)
+func getSchemaName() string {
+	return "taskmill"
+}
+
+func getRetryStrategy() pgqueue.RetryStrategy {
+	return pgqueue.NewExponentialBackoffStrategy()
+}
 
 func defaultEnqueueOptions() *enqueueOptions {
 	return &enqueueOptions{

@@ -50,7 +50,7 @@ func NewScheduler(db *bun.DB, queueName string, opts ...SchedulerOption) (Schedu
 		opt(&options)
 	}
 
-	enqueuer, err := NewEnqueuer(db, queueName)
+	enqueuer, err := NewEnqueuer(queueName)
 	if err != nil {
 		return nil, errx.Wrap(err)
 	}

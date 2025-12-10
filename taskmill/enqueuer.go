@@ -22,8 +22,8 @@ type Enqueuer interface {
 }
 
 // NewEnqueuer creates a new Enqueuer instance.
-func NewEnqueuer(db *bun.DB, queueName string) (Enqueuer, error) {
-	queue, err := pgqueue.NewQueue(schemaName, retryStrategy)
+func NewEnqueuer(queueName string) (Enqueuer, error) {
+	queue, err := pgqueue.NewQueue(getSchemaName(), getRetryStrategy())
 	if err != nil {
 		return nil, errx.Wrap(err)
 	}

@@ -9,9 +9,9 @@ import (
 )
 
 var (
-	globalServiceName    string
-	globalServiceVersion string
-	globalOnce           sync.Once
+	globalServiceName    string    //nolint:gochecknoglobals // for minimizing dependency injection across codebase
+	globalServiceVersion string    //nolint:gochecknoglobals // for minimizing dependency injection across codebase
+	globalOnce           sync.Once //nolint:gochecknoglobals // ensures SetServiceInfo is called once
 )
 
 // SetServiceInfo sets the global service name and version.
