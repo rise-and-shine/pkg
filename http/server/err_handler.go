@@ -34,12 +34,13 @@ func customErrorHandler(debug bool) fiber.ErrorHandler {
 	return func(ctx *fiber.Ctx, err error) error {
 		r := ctx.Response()
 
-		// if error already handled, skip processing.
+		// if error already handled, skip processing by returning nil
 		if r != nil && r.StatusCode() >= 400 {
-			return err
+			return nil
 		}
 
-		return WriteErrorResponse(ctx, err, debug)
+		_ = WriteErrorResponse(ctx, err, debug)
+		return nil
 	}
 }
 

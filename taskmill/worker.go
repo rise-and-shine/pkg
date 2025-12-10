@@ -372,7 +372,7 @@ func (w *worker) processWithTracing(next handleFunc) handleFunc {
 		// start a new span
 		ctx, span := otel.Tracer("").Start(ctx, fmt.Sprintf("PROCESS %s", m.Payload["_operation_id"]),
 			trace.WithAttributes(
-				semconv.MessagingSystem("postgres"),
+				semconv.MessagingSystem("pgqueue"),
 				semconv.MessagingOperationProcess,
 				semconv.MessagingMessageID(strconv.FormatInt(m.ID, 10)),
 			),
