@@ -36,7 +36,7 @@ func customErrorHandler(debug bool) fiber.ErrorHandler {
 
 		// if error already handled, skip processing.
 		if r != nil && r.StatusCode() >= 400 {
-			return err
+			return nil
 		}
 
 		_ = WriteErrorResponse(ctx, err, debug)
