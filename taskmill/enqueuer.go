@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/code19m/errx"
-	"github.com/rise-and-shine/pkg/pgqueue"
+	"github.com/rise-and-shine/pkg/taskmill/internal/pgqueue"
 	"github.com/uptrace/bun"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
@@ -61,7 +61,7 @@ func (e *enqueuer) Enqueue(
 		ExpiresAt:      options.expiresAt,
 	}
 
-	msgIDs, err := e.queue.EnqueueBatchTx(ctx, tx, e.queueName, []pgqueue.SingleMessage{singleMessage})
+	msgIDs, err := e.queue.EnqueueBatch(ctx, tx, e.queueName, []pgqueue.SingleMessage{singleMessage})
 	if err != nil {
 		return 0, errx.Wrap(err)
 	}

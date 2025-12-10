@@ -4,9 +4,6 @@ import "github.com/code19m/errx"
 
 // validateQueueConfig validates a QueueConfig.
 func validateQueueConfig(config *QueueConfig) error {
-	if config.DB == nil {
-		return errx.New("[pgqueue]: DB is required")
-	}
 	if config.Schema == "" {
 		return errx.New("[pgqueue]: schema is required")
 	}

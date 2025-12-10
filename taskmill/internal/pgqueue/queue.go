@@ -35,11 +35,38 @@ import (
 	"github.com/uptrace/bun"
 )
 
+// Queue defines the interface for queue operations.
+type Queue interface {
+	// EnqueueBatch adds multiple messages to the queue.
+	EnqueueBatch(ctx context.Context, db bun.IDB, queueName string, messages []SingleMessage) ([]int64, error)
+
+	// Dequeue retrieves messages from the queue.
+	Dequeue(ctx context.Context, db bun.IDB, params DequeueParams) ([]Message, error)
+
+	// Ack acknowledges a message, removing it from the queue.
+	Ack(ctx context.Context, db bun.IDB, messageID int64) error
+
+	// Nack negatively acknowledges a message, triggering retry or DLQ.
+	Nack(ctx context.Context, db bun.IDB, messageID int64, reason map[string]any) error
+
+	// Purge removes all messages from a queue (excluding DLQ messages).
+	Purge(ctx context.Context, db bun.IDB, queueName string) error
+
+	// PurgeDLQ removes all DLQ messages from a queue.
+	PurgeDLQ(ctx context.Context, db bun.IDB, queueName string) error
+
+	// RequeueFromDLQ moves a message from DLQ back to the queue.
+	RequeueFromDLQ(ctx context.Context, db bun.IDB, messageID int64) error
+
+	// Stats returns statistics about a queue.
+	Stats(ctx context.Context, db bun.IDB, queueName string) (*QueueStats, error)
+
+	// Migrate auto creates the queue schema and tables if they don't exist.
+	Migrate(ctx context.Context, db bun.IDB, schema string) error
+}
+
 // QueueConfig configures a Queue instance.
 type QueueConfig struct {
-	// DB is the bun DB instance (required).
-	DB *bun.DB
-
 	// Schema is the PostgreSQL schema name (required).
 	// Must be valid identifier: alphanumeric + underscore, 1-63 chars.
 	Schema string
@@ -47,36 +74,6 @@ type QueueConfig struct {
 	// RetryStrategy determines retry behavior (required).
 	// Use NewExponentialBackoffStrategy(), NewFixedDelayStrategy(), or NoRetryStrategy().
 	RetryStrategy RetryStrategy
-
-	// AutoMigrate indicates if the queue schema should be created if it doesn't exist.
-	AutoMigrate bool
-}
-
-// Queue defines the interface for queue operations with transaction-first design.
-type Queue interface {
-	// EnqueueBatchTx adds multiple messages to the queue.
-	EnqueueBatchTx(ctx context.Context, tx *bun.Tx, queueName string, messages []SingleMessage) ([]int64, error)
-
-	// DequeueTx retrieves messages from the queue.
-	DequeueTx(ctx context.Context, tx *bun.Tx, params DequeueParams) ([]Message, error)
-
-	// AckTx acknowledges a message within a transaction, removing it from the queue.
-	AckTx(ctx context.Context, tx *bun.Tx, messageID int64) error
-
-	// NackTx negatively acknowledges a message within a transaction, triggering retry or DLQ.
-	NackTx(ctx context.Context, tx *bun.Tx, messageID int64, reason map[string]any) error
-
-	// Purge removes all messages from a queue (excluding DLQ messages).
-	Purge(ctx context.Context, queueName string) error
-
-	// PurgeDLQ removes all DLQ messages from a queue.
-	PurgeDLQ(ctx context.Context, queueName string) error
-
-	// RequeueFromDLQ moves a message from DLQ back to the queue.
-	RequeueFromDLQ(ctx context.Context, messageID int64) error
-
-	// Stats returns statistics about a queue.
-	Stats(ctx context.Context, queueName string) (*QueueStats, error)
 }
 
 // NewQueue creates a new queue instance.
@@ -86,15 +83,7 @@ func NewQueue(config *QueueConfig) (Queue, error) {
 		return nil, errx.Wrap(err)
 	}
 
-	if config.AutoMigrate {
-		err = migrate(config.DB, config.Schema)
-		if err != nil {
-			return nil, errx.Wrap(err)
-		}
-	}
-
 	return &queue{
-		db:            config.DB,
 		schema:        config.Schema,
 		retryStrategy: config.RetryStrategy,
 	}, nil
@@ -102,7 +91,6 @@ func NewQueue(config *QueueConfig) (Queue, error) {
 
 // queue is the concrete implementation of the Queue interface.
 type queue struct {
-	db            *bun.DB
 	schema        string
 	retryStrategy RetryStrategy
 }

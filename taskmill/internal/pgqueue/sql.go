@@ -3,9 +3,11 @@ package pgqueue
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/code19m/errx"
+	"github.com/rise-and-shine/pkg/pg"
 	"github.com/uptrace/bun"
 )
 
@@ -18,39 +20,58 @@ func (q *queue) tableName() string {
 	return fmt.Sprintf("%s.%s", q.schema, tableNameQueueMessages)
 }
 
-// insertMessage inserts a new message and returns its ID.
-func (q *queue) insertMessage(ctx context.Context, db bun.IDB, msg *Message) error {
+// insertMessages inserts multiple messages in a single batch and returns their IDs.
+func (q *queue) insertMessages(ctx context.Context, db bun.IDB, messages []Message) ([]int64, error) {
+	if len(messages) == 0 {
+		return []int64{}, nil
+	}
+
+	// Build the VALUES clause with placeholders
+	var args []any
+	valuesPlaceholders := make([]string, 0, len(messages))
+
+	for _, msg := range messages {
+		valuesPlaceholders = append(valuesPlaceholders, "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+		args = append(args,
+			msg.QueueName,
+			msg.MessageGroupID,
+			msg.Payload,
+			msg.ScheduledAt,
+			msg.VisibleAt,
+			msg.ExpiresAt,
+			msg.Priority,
+			msg.MaxAttempts,
+			msg.IdempotencyKey,
+			msg.Attempts,
+		)
+	}
+
 	query := fmt.Sprintf(`
 		INSERT INTO %s (
-			queue_name, 
-			message_group_id, 
-			payload, 
-			scheduled_at, 
+			queue_name,
+			message_group_id,
+			payload,
+			scheduled_at,
 			visible_at,
-			expires_at, 
-			priority, 
-			max_attempts, 
-			idempotency_key, 
+			expires_at,
+			priority,
+			max_attempts,
+			idempotency_key,
 			attempts
-		) VALUES (
-			?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-		) RETURNING id
-	`, q.tableName())
+		) VALUES %s
+		RETURNING id
+	`, q.tableName(), strings.Join(valuesPlaceholders, ", "))
 
-	err := db.NewRaw(query,
-		msg.QueueName,
-		msg.MessageGroupID,
-		msg.Payload,
-		msg.ScheduledAt,
-		msg.VisibleAt,
-		msg.ExpiresAt,
-		msg.Priority,
-		msg.MaxAttempts,
-		msg.IdempotencyKey,
-		msg.Attempts,
-	).Scan(ctx, &msg.ID)
+	var ids []int64
+	err := db.NewRaw(query, args...).Scan(ctx, &ids)
+	if pg.ConstraintName(err) == idempotencyKeyUniqueConstraint {
+		return nil, errx.Wrap(err, errx.WithCode(CodeDuplicateMessage))
+	}
+	if err != nil {
+		return nil, errx.Wrap(err)
+	}
 
-	return errx.Wrap(err)
+	return ids, nil
 }
 
 // dequeueMessages retrieves and locks messages from the queue.
@@ -186,7 +207,7 @@ func (q *queue) selectMessageByID(ctx context.Context, db bun.IDB, messageID int
 }
 
 // getQueueStats retrieves statistics for a queue.
-func (q *queue) getQueueStats(ctx context.Context, queueName string) (*QueueStats, error) {
+func (q *queue) getQueueStats(ctx context.Context, db bun.IDB, queueName string) (*QueueStats, error) {
 	query := fmt.Sprintf(`
 		SELECT
 			? as queue_name,
@@ -207,36 +228,36 @@ func (q *queue) getQueueStats(ctx context.Context, queueName string) (*QueueStat
 	`, q.tableName())
 
 	stats := &QueueStats{}
-	err := q.db.NewRaw(query, queueName, queueName).Scan(ctx, stats)
+	err := db.NewRaw(query, queueName, queueName).Scan(ctx, stats)
 	return stats, errx.Wrap(err)
 }
 
 // deleteQueueMessages deletes all non-DLQ messages from a queue.
-func (q *queue) deleteQueueMessages(ctx context.Context, queueName string) error {
+func (q *queue) deleteQueueMessages(ctx context.Context, db bun.IDB, queueName string) error {
 	query := fmt.Sprintf(`
 		DELETE FROM %s
 		WHERE queue_name = ?
 		  AND dlq_at IS NULL
 	`, q.tableName())
 
-	_, err := q.db.ExecContext(ctx, query, queueName)
+	_, err := db.ExecContext(ctx, query, queueName)
 	return errx.Wrap(err)
 }
 
 // deleteDLQMessages deletes all DLQ messages from a queue.
-func (q *queue) deleteDLQMessages(ctx context.Context, queueName string) error {
+func (q *queue) deleteDLQMessages(ctx context.Context, db bun.IDB, queueName string) error {
 	query := fmt.Sprintf(`
 		DELETE FROM %s
 		WHERE queue_name = ?
 		  AND dlq_at IS NOT NULL
 	`, q.tableName())
 
-	_, err := q.db.ExecContext(ctx, query, queueName)
+	_, err := db.ExecContext(ctx, query, queueName)
 	return errx.Wrap(err)
 }
 
 // requeueFromDLQ moves a message from DLQ back to the queue.
-func (q *queue) requeueFromDLQ(ctx context.Context, messageID int64) error {
+func (q *queue) requeueFromDLQ(ctx context.Context, db bun.IDB, messageID int64) error {
 	query := fmt.Sprintf(`
 		UPDATE %s
 		SET
@@ -249,6 +270,6 @@ func (q *queue) requeueFromDLQ(ctx context.Context, messageID int64) error {
 		WHERE id = ?
 	`, q.tableName())
 
-	_, err := q.db.ExecContext(ctx, query, messageID)
+	_, err := db.ExecContext(ctx, query, messageID)
 	return errx.Wrap(err)
 }

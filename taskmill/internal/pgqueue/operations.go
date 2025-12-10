@@ -8,10 +8,10 @@ import (
 	"github.com/uptrace/bun"
 )
 
-// AckTx acknowledges a message within a transaction, removing it from the queue.
-func (q *queue) AckTx(ctx context.Context, tx *bun.Tx, messageID int64) error {
+// Ack acknowledges a message, removing it from the queue.
+func (q *queue) Ack(ctx context.Context, db bun.IDB, messageID int64) error {
 	// Delete the message
-	rowsAffected, err := q.deleteMessage(ctx, tx, messageID)
+	rowsAffected, err := q.deleteMessage(ctx, db, messageID)
 	if err != nil {
 		return errx.Wrap(err)
 	}
@@ -23,10 +23,10 @@ func (q *queue) AckTx(ctx context.Context, tx *bun.Tx, messageID int64) error {
 	return nil
 }
 
-// NackTx negatively acknowledges a message within a transaction, triggering retry or DLQ.
-func (q *queue) NackTx(ctx context.Context, tx *bun.Tx, messageID int64, reason map[string]any) error {
+// Nack negatively acknowledges a message, triggering retry or DLQ.
+func (q *queue) Nack(ctx context.Context, db bun.IDB, messageID int64, reason map[string]any) error {
 	// Load the message
-	msg, err := q.selectMessageByID(ctx, tx, messageID)
+	msg, err := q.selectMessageByID(ctx, db, messageID)
 	if err != nil {
 		return errx.Wrap(err)
 	}
@@ -45,14 +45,14 @@ func (q *queue) NackTx(ctx context.Context, tx *bun.Tx, messageID int64, reason 
 		newVisibleAt := time.Now().Add(delay)
 
 		// Update message for retry
-		_, err = q.updateMessageVisibility(ctx, tx, messageID, newVisibleAt)
+		_, err = q.updateMessageVisibility(ctx, db, messageID, newVisibleAt)
 		if err != nil {
 			return errx.Wrap(err)
 		}
 	} else {
 		// Move to DLQ
 		now := time.Now()
-		err = q.moveToDLQ(ctx, tx, messageID, now, reason)
+		err = q.moveToDLQ(ctx, db, messageID, now, reason)
 		if err != nil {
 			return errx.Wrap(err)
 		}
@@ -62,19 +62,19 @@ func (q *queue) NackTx(ctx context.Context, tx *bun.Tx, messageID int64, reason 
 }
 
 // Purge removes all messages from a queue (excluding DLQ messages).
-func (q *queue) Purge(ctx context.Context, queueName string) error {
-	return q.deleteQueueMessages(ctx, queueName)
+func (q *queue) Purge(ctx context.Context, db bun.IDB, queueName string) error {
+	return q.deleteQueueMessages(ctx, db, queueName)
 }
 
 // PurgeDLQ removes all DLQ messages from a queue.
-func (q *queue) PurgeDLQ(ctx context.Context, queueName string) error {
-	return q.deleteDLQMessages(ctx, queueName)
+func (q *queue) PurgeDLQ(ctx context.Context, db bun.IDB, queueName string) error {
+	return q.deleteDLQMessages(ctx, db, queueName)
 }
 
 // RequeueFromDLQ moves a message from DLQ back to the queue.
-func (q *queue) RequeueFromDLQ(ctx context.Context, messageID int64) error {
+func (q *queue) RequeueFromDLQ(ctx context.Context, db bun.IDB, messageID int64) error {
 	// Load the message
-	msg, err := q.selectMessageByID(ctx, q.db, messageID)
+	msg, err := q.selectMessageByID(ctx, db, messageID)
 	if err != nil {
 		return errx.Wrap(err)
 	}
@@ -84,10 +84,10 @@ func (q *queue) RequeueFromDLQ(ctx context.Context, messageID int64) error {
 		return errx.New("[pgqueue]: message is not in DLQ")
 	}
 
-	return q.requeueFromDLQ(ctx, messageID)
+	return q.requeueFromDLQ(ctx, db, messageID)
 }
 
 // Stats returns statistics about a queue.
-func (q *queue) Stats(ctx context.Context, queueName string) (*QueueStats, error) {
-	return q.getQueueStats(ctx, queueName)
+func (q *queue) Stats(ctx context.Context, db bun.IDB, queueName string) (*QueueStats, error) {
+	return q.getQueueStats(ctx, db, queueName)
 }

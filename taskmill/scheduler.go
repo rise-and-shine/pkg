@@ -3,12 +3,13 @@ package taskmill
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"sync"
 	"time"
 
 	"github.com/code19m/errx"
 	"github.com/rise-and-shine/pkg/observability/logger"
-	"github.com/rise-and-shine/pkg/pgqueue"
+	"github.com/rise-and-shine/pkg/taskmill/internal/pgqueue"
 	"github.com/robfig/cron/v3"
 	"github.com/uptrace/bun"
 )
@@ -16,7 +17,7 @@ import (
 // Scheduler is a cron-based task scheduler.
 type Scheduler interface {
 	// RegisterSchedules registers new schedules.
-	RegisterSchedules(schedules []Schedule) error
+	RegisterSchedules(schedules ...Schedule) error
 
 	// TriggerNow enqueues a task to run immediately.
 	TriggerNow(ctx context.Context, operationID string) error
@@ -106,7 +107,7 @@ type scheduleTrack struct {
 	nextRun time.Time
 }
 
-func (s *scheduler) RegisterSchedules(schedules []Schedule) error {
+func (s *scheduler) RegisterSchedules(schedules ...Schedule) error {
 	for _, schedule := range schedules {
 		err := s.addSchedule(schedule)
 		if err != nil {
@@ -267,12 +268,19 @@ func (s *scheduler) scheduleTask(st scheduleTrack) error {
 		payload = st.schedule.PayloadFunc()
 	}
 
+	// idempotency based on unique for
+	idempotencyKey := fmt.Sprintf("task:%s:%d",
+		st.schedule.OperationID,
+		time.Now().Truncate(st.schedule.UniqueFor).Unix())
+
+	opts := append(st.schedule.EnqueueOptions, WithIdempotencyKey(idempotencyKey))
+
 	_, err = s.enqueuer.Enqueue(
 		ctx,
 		&tx,
 		st.schedule.OperationID,
 		payload,
-		st.schedule.EnqueueOptions...,
+		opts...,
 	)
 	if errx.IsCodeIn(err, pgqueue.CodeDuplicateMessage) {
 		return nil

@@ -4,7 +4,7 @@ import (
 	"time"
 
 	"github.com/code19m/errx"
-	"github.com/rise-and-shine/pkg/pgqueue"
+	"github.com/rise-and-shine/pkg/taskmill/internal/pgqueue"
 	"github.com/uptrace/bun"
 )
 

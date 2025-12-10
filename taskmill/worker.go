@@ -13,7 +13,7 @@ import (
 	"github.com/rise-and-shine/pkg/meta"
 	"github.com/rise-and-shine/pkg/observability/alert"
 	"github.com/rise-and-shine/pkg/observability/logger"
-	"github.com/rise-and-shine/pkg/pgqueue"
+	"github.com/rise-and-shine/pkg/taskmill/internal/pgqueue"
 	"github.com/rise-and-shine/pkg/ucdef"
 	"github.com/uptrace/bun"
 	"go.opentelemetry.io/otel"
@@ -171,7 +171,7 @@ func (w *worker) dequeueMessages(ctx context.Context) ([]pgqueue.Message, error)
 		BatchSize:         w.batchSize,
 	}
 
-	messages, err := w.queue.DequeueTx(ctx, &tx, params)
+	messages, err := w.queue.Dequeue(ctx, &tx, params)
 	if err != nil {
 		return nil, errx.Wrap(err)
 	}
@@ -243,7 +243,7 @@ func (w *worker) ackMessage(ctx context.Context, message pgqueue.Message) error 
 	}
 	defer tx.Rollback() //nolint:errcheck // rollback is no-op after commit
 
-	err = w.queue.AckTx(ctx, &tx, message.ID)
+	err = w.queue.Ack(ctx, &tx, message.ID)
 	if err != nil {
 		return errx.Wrap(err)
 	}
@@ -262,7 +262,7 @@ func (w *worker) nackMessage(ctx context.Context, message pgqueue.Message, reaso
 	}
 	defer tx.Rollback() //nolint:errcheck // rollback is no-op after commit
 
-	err = w.queue.NackTx(ctx, &tx, message.ID, reason)
+	err = w.queue.Nack(ctx, &tx, message.ID, reason)
 	if err != nil {
 		return errx.Wrap(err)
 	}

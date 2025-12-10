@@ -152,9 +152,9 @@ FROM %s
 GROUP BY queue_name;`, schema, table)
 }
 
-// migrate creates the queue schema and tables.
-func migrate(db *bun.DB, schema string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), migrationTimeout)
+// Migrate creates the queue schema and tables.
+func (q *queue) Migrate(ctx context.Context, db bun.IDB, schema string) error {
+	ctx, cancel := context.WithTimeout(ctx, migrationTimeout)
 	defer cancel()
 
 	sql := generateSchemaSQL(schema)

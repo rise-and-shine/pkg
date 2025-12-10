@@ -26,8 +26,8 @@ type DequeueParams struct {
 	BatchSize int
 }
 
-// DequeueTx retrieves messages from the queue.
-func (q *queue) DequeueTx(ctx context.Context, tx *bun.Tx, params DequeueParams) ([]Message, error) {
+// Dequeue retrieves messages from the queue.
+func (q *queue) Dequeue(ctx context.Context, db bun.IDB, params DequeueParams) ([]Message, error) {
 	// Validate parameters
 	err := validateDequeueParams(params)
 	if err != nil {
@@ -46,10 +46,9 @@ func (q *queue) DequeueTx(ctx context.Context, tx *bun.Tx, params DequeueParams)
 	//
 	// These timeouts ensure that even if a worker crashes, the lock will be
 	// automatically released within the configured timeout period, preventing deadlocks.
-	// See the pgqueue package documentation for recommended timeout values.
 	if params.MessageGroupID != nil && *params.MessageGroupID != "" {
 		lockID := calculateLockID(params.QueueName, *params.MessageGroupID)
-		_, err = tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock(?)", lockID)
+		_, err = db.ExecContext(ctx, "SELECT pg_advisory_xact_lock(?)", lockID)
 		if err != nil {
 			return nil, errx.Wrap(err)
 		}
@@ -58,7 +57,7 @@ func (q *queue) DequeueTx(ctx context.Context, tx *bun.Tx, params DequeueParams)
 	// Dequeue messages
 	messages, err := q.dequeueMessages(
 		ctx,
-		tx,
+		db,
 		params.QueueName,
 		params.MessageGroupID,
 		params.BatchSize,
@@ -75,7 +74,7 @@ func (q *queue) DequeueTx(ctx context.Context, tx *bun.Tx, params DequeueParams)
 	for _, msg := range messages {
 		if msg.ExpiresAt != nil && msg.ExpiresAt.Before(time.Now()) {
 			// Move expired message to DLQ
-			err = q.moveToDLQ(ctx, tx, msg.ID, time.Now(), map[string]any{
+			err = q.moveToDLQ(ctx, db, msg.ID, time.Now(), map[string]any{
 				"reason": "message's expires_at timestamp has been reached before it could be processed",
 			})
 			if err != nil {
@@ -86,7 +85,7 @@ func (q *queue) DequeueTx(ctx context.Context, tx *bun.Tx, params DequeueParams)
 
 		if msg.MaxAttempts > 0 && msg.Attempts >= msg.MaxAttempts {
 			// Move message with max attempts to DLQ
-			err = q.moveToDLQ(ctx, tx, msg.ID, time.Now(), map[string]any{
+			err = q.moveToDLQ(ctx, db, msg.ID, time.Now(), map[string]any{
 				"reason": "message's attempt counter has already reached or exceeded max_attempts limit",
 			})
 			if err != nil {
