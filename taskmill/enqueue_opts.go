@@ -1,9 +1,8 @@
 package taskmill
 
 import (
+	"fmt"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // EnqueueOption is a functional option for customizing task enqueueing.
@@ -17,17 +16,6 @@ type enqueueOptions struct {
 	expiresAt      *time.Time
 	messageGroupID *string
 	idempotencyKey string
-}
-
-func defaultEnqueueOptions() *enqueueOptions {
-	return &enqueueOptions{
-		priority:       0,
-		maxAttempts:    3,
-		scheduledAt:    time.Now(),
-		expiresAt:      nil,
-		messageGroupID: nil,
-		idempotencyKey: uuid.NewString(),
-	}
 }
 
 // WithPriority specifies the task priority (-100 to 100).
@@ -77,4 +65,12 @@ func WithIdempotencyKey(key string) EnqueueOption {
 	return func(opts *enqueueOptions) {
 		opts.idempotencyKey = key
 	}
+}
+
+// UniqueFor return idempotency key that is unique for a given operation.
+func UniqueFor(operationID string, dur time.Duration) string {
+	return fmt.Sprintf("%s:%d",
+		operationID,
+		time.Now().Truncate(dur).Unix(),
+	)
 }

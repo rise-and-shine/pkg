@@ -16,16 +16,16 @@ import (
 type Enqueuer interface {
 	// Enqueue enqueues a task for execution.
 	// Returns the ID of the enqueued message from pgqueue.
-	Enqueue(ctx context.Context, tx *bun.Tx, operationID string, payload any, opts ...EnqueueOption) (int64, error)
+	Enqueue(ctx context.Context, db bun.IDB, operationID string, payload any, opts ...EnqueueOption) (int64, error)
+
+	// TODO: implement EnqueueBatch
 }
 
 // NewEnqueuer creates a new Enqueuer instance.
-func NewEnqueuer(queue pgqueue.Queue, queueName string) (Enqueuer, error) {
-	if queue == nil {
-		return nil, errx.New("[taskmill]: Queue is required")
-	}
-	if queueName == "" {
-		return nil, errx.New("[taskmill]: QueueName is required")
+func NewEnqueuer(db *bun.DB, queueName string) (Enqueuer, error) {
+	queue, err := pgqueue.NewQueue(schemaName, retryStrategy)
+	if err != nil {
+		return nil, errx.Wrap(err)
 	}
 
 	return &enqueuer{
@@ -41,7 +41,7 @@ type enqueuer struct {
 
 func (e *enqueuer) Enqueue(
 	ctx context.Context,
-	tx *bun.Tx,
+	db bun.IDB,
 	operationID string,
 	payload any,
 	opts ...EnqueueOption,
@@ -61,7 +61,7 @@ func (e *enqueuer) Enqueue(
 		ExpiresAt:      options.expiresAt,
 	}
 
-	msgIDs, err := e.queue.EnqueueBatch(ctx, tx, e.queueName, []pgqueue.SingleMessage{singleMessage})
+	msgIDs, err := e.queue.EnqueueBatch(ctx, db, e.queueName, []pgqueue.SingleMessage{singleMessage})
 	if err != nil {
 		return 0, errx.Wrap(err)
 	}

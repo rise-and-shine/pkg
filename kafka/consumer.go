@@ -11,14 +11,12 @@ import (
 )
 
 type Consumer struct {
-	cfg            ConsumerConfig
-	topic          string
-	serviceName    string
-	serviceVersion string
-	saramaCfg      *sarama.Config
-	logger         logger.Logger
-	consumerGroup  sarama.ConsumerGroup
-	handleFn       HandleFunc
+	cfg           ConsumerConfig
+	topic         string
+	saramaCfg     *sarama.Config
+	logger        logger.Logger
+	consumerGroup sarama.ConsumerGroup
+	handleFn      HandleFunc
 }
 
 // HandleFunc is a delivery handler that should be injected into the consumer.
@@ -28,11 +26,9 @@ type HandleFunc func(context.Context, *sarama.ConsumerMessage) error
 func NewConsumer(
 	cfg ConsumerConfig,
 	topic string,
-	serviceName string,
-	serviceVersion string,
 	handleFn HandleFunc,
 ) (*Consumer, error) {
-	saramaCfg, err := cfg.getSaramaConfig(serviceName)
+	saramaCfg, err := cfg.getSaramaConfig()
 	if err != nil {
 		return nil, errx.Wrap(err)
 	}
@@ -44,14 +40,12 @@ func NewConsumer(
 	}
 
 	return &Consumer{
-		cfg:            cfg,
-		topic:          topic,
-		serviceName:    serviceName,
-		serviceVersion: serviceVersion,
-		saramaCfg:      saramaCfg,
-		logger:         logger.Named("kafka.consumer"),
-		consumerGroup:  consumerGroup,
-		handleFn:       handleFn,
+		cfg:           cfg,
+		topic:         topic,
+		saramaCfg:     saramaCfg,
+		logger:        logger.Named("kafka.consumer"),
+		consumerGroup: consumerGroup,
+		handleFn:      handleFn,
 	}, nil
 }
 

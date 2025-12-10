@@ -2,8 +2,6 @@ package taskmill
 
 import (
 	"context"
-	"database/sql"
-	"fmt"
 	"sync"
 	"time"
 
@@ -41,22 +39,20 @@ type Schedule struct {
 	// Should match the OperationID of the ucdef.AsyncTask.
 	OperationID string
 
-	// PayloadFunc is a function that creates the payload for the task at each enqueuing time.
-	PayloadFunc func() any
-
-	// UniqueFor is the duration for which the task should be unique.
-	UniqueFor time.Duration
-
 	// EnqueueOptions are additional options for enqueuing the task.
 	EnqueueOptions []EnqueueOption
 }
 
 // NewScheduler creates a new Scheduler instance.
-func NewScheduler(config *SchedulerConfig) (Scheduler, error) {
-	config.setDefaults()
+func NewScheduler(db *bun.DB, queueName string, opts ...SchedulerOption) (Scheduler, error) {
+	options := defaultSchedulerOptions()
+	for _, opt := range opts {
+		opt(&options)
+	}
 
-	if err := config.validate(); err != nil {
-		return nil, err
+	enqueuer, err := NewEnqueuer(db, queueName)
+	if err != nil {
+		return nil, errx.Wrap(err)
 	}
 
 	parser := cron.NewParser(
@@ -64,15 +60,16 @@ func NewScheduler(config *SchedulerConfig) (Scheduler, error) {
 	)
 
 	scheduler := &scheduler{
-		db:            config.DB,
-		enqueuer:      config.Enqueuer,
-		checkInterval: config.CheckInterval,
+		db:            db,
+		enqueuer:      enqueuer,
+		checkInterval: options.checkInterval,
 		cronParser:    parser,
-		schedulesMap:  map[string]scheduleTrack{},
-		mu:            sync.RWMutex{},
-		stopCh:        make(chan struct{}),
-		stoppedCh:     make(chan struct{}),
-		logger:        logger.Named("taskmill.scheduler"),
+
+		schedulesMap: map[string]scheduleTrack{},
+		mu:           sync.RWMutex{},
+		stopCh:       make(chan struct{}),
+		stoppedCh:    make(chan struct{}),
+		logger:       logger.Named("taskmill.scheduler"),
 	}
 
 	return scheduler, nil
@@ -129,28 +126,16 @@ func (s *scheduler) TriggerNow(ctx context.Context, operationID string) error {
 		)
 	}
 
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{})
-	if err != nil {
-		return errx.Wrap(err)
-	}
-	defer tx.Rollback() //nolint:errcheck // intentional
-
-	var payload any
-	if st.schedule.PayloadFunc != nil {
-		payload = st.schedule.PayloadFunc()
-	}
-
-	_, err = s.enqueuer.Enqueue(
+	_, err := s.enqueuer.Enqueue(
 		ctx,
-		&tx,
+		s.db,
 		st.schedule.OperationID,
-		payload,
+		struct{}{},
 		st.schedule.EnqueueOptions...)
 	if err != nil {
 		return errx.Wrap(err)
 	}
 
-	err = tx.Commit()
 	return errx.Wrap(err)
 }
 
@@ -207,7 +192,7 @@ func (s *scheduler) addSchedule(schedule Schedule) error {
 	s.schedulesMap[schedule.OperationID] = scheduleTrack{
 		schedule:     schedule,
 		cronSchedule: cronSchedule,
-		lastRun:      time.Time{}, // zero time - task hasn't run yet
+		lastRun:      now,
 		nextRun:      nextRun,
 	}
 	s.mu.Unlock()
@@ -257,39 +242,23 @@ func (s *scheduler) scheduleTask(st scheduleTrack) error {
 	ctx, cancel := context.WithTimeout(context.Background(), enqueueTimeout)
 	defer cancel()
 
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{})
-	if err != nil {
-		return errx.Wrap(err)
-	}
-	defer tx.Rollback() //nolint:errcheck // intentional
-
-	var payload any
-	if st.schedule.PayloadFunc != nil {
-		payload = st.schedule.PayloadFunc()
-	}
-
-	// idempotency based on unique for
-	idempotencyKey := fmt.Sprintf("task:%s:%d",
-		st.schedule.OperationID,
-		time.Now().Truncate(st.schedule.UniqueFor).Unix())
-
-	opts := append(st.schedule.EnqueueOptions, WithIdempotencyKey(idempotencyKey))
-
-	_, err = s.enqueuer.Enqueue(
+	_, err := s.enqueuer.Enqueue(
 		ctx,
-		&tx,
+		s.db,
 		st.schedule.OperationID,
-		payload,
-		opts...,
+		struct{}{},
+		st.schedule.EnqueueOptions...,
 	)
 	if errx.IsCodeIn(err, pgqueue.CodeDuplicateMessage) {
+		s.mu.Lock()
+		if current, ok := s.schedulesMap[st.schedule.OperationID]; ok {
+			current.lastRun = st.nextRun
+			current.nextRun = current.cronSchedule.Next(st.nextRun)
+			s.schedulesMap[st.schedule.OperationID] = current
+		}
+		s.mu.Unlock()
 		return nil
 	}
-	if err != nil {
-		return errx.Wrap(err)
-	}
-
-	err = tx.Commit()
 	if err != nil {
 		return errx.Wrap(err)
 	}
@@ -302,6 +271,5 @@ func (s *scheduler) scheduleTask(st scheduleTrack) error {
 		s.schedulesMap[st.schedule.OperationID] = current
 	}
 	s.mu.Unlock()
-
 	return nil
 }

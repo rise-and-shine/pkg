@@ -2,17 +2,6 @@ package pgqueue
 
 import "github.com/code19m/errx"
 
-// validateQueueConfig validates a QueueConfig.
-func validateQueueConfig(config *QueueConfig) error {
-	if config.Schema == "" {
-		return errx.New("[pgqueue]: schema is required")
-	}
-	if config.RetryStrategy == nil {
-		return errx.New("[pgqueue]: retry strategy is required")
-	}
-	return nil
-}
-
 // validateSingleMsg validates a SingleMessage.
 func validateSingleMsg(msg SingleMessage) error {
 	if msg.IdempotencyKey == "" {

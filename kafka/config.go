@@ -5,6 +5,7 @@ import (
 
 	"github.com/IBM/sarama"
 	"github.com/code19m/errx"
+	"github.com/rise-and-shine/pkg/meta"
 )
 
 const (
@@ -14,9 +15,10 @@ const (
 
 // ConsumerConfig holds configuration for a Kafka consumer.
 type ConsumerConfig struct {
-	Brokers      string `yaml:"brokers"       validate:"required"`
+	Brokers string `yaml:"brokers" validate:"required"`
+
 	SaslUsername string `yaml:"sasl_username"`
-	SaslPassword string `yaml:"sasl_password"                     mask:"true"`
+	SaslPassword string `yaml:"sasl_password" mask:"true"`
 
 	// If not set defaults to the service name.
 	GroupID string `yaml:"group_id"`
@@ -27,9 +29,9 @@ type ConsumerConfig struct {
 	HandlerTimeout time.Duration `yaml:"handler_timeout" default:"30s"`
 }
 
-func (c *ConsumerConfig) getSaramaConfig(serviceName string) (*sarama.Config, error) {
+func (c *ConsumerConfig) getSaramaConfig() (*sarama.Config, error) {
 	if c.GroupID == "" {
-		c.GroupID = serviceName
+		c.GroupID = meta.GetServiceName()
 	}
 	saramaConf := sarama.NewConfig()
 	saramaConf.ClientID = c.GroupID
@@ -70,9 +72,9 @@ type ProducerConfig struct {
 	KafkaVersion string `yaml:"kafka_version" default:"3.6.0"`
 }
 
-func (c *ProducerConfig) getSaramaConfig(serviceName string) (*sarama.Config, error) {
+func (c *ProducerConfig) getSaramaConfig() (*sarama.Config, error) {
 	saramaCfg := sarama.NewConfig()
-	saramaCfg.ClientID = serviceName
+	saramaCfg.ClientID = meta.GetServiceName()
 	version, err := sarama.ParseKafkaVersion(c.KafkaVersion)
 	if err != nil {
 		return nil, errx.Wrap(err)

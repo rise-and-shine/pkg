@@ -77,15 +77,17 @@ type QueueConfig struct {
 }
 
 // NewQueue creates a new queue instance.
-func NewQueue(config *QueueConfig) (Queue, error) {
-	err := validateQueueConfig(config)
-	if err != nil {
-		return nil, errx.Wrap(err)
+func NewQueue(schema string, retryStrategy RetryStrategy) (Queue, error) {
+	if schema == "" {
+		return nil, errx.New("[pgqueue]: schema is required")
+	}
+	if retryStrategy == nil {
+		return nil, errx.New("[pgqueue]: retry strategy is required")
 	}
 
 	return &queue{
-		schema:        config.Schema,
-		retryStrategy: config.RetryStrategy,
+		schema:        schema,
+		retryStrategy: retryStrategy,
 	}, nil
 }
 

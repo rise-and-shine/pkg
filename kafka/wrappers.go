@@ -88,13 +88,14 @@ func (c *Consumer) handlerWithTimeout(next HandleFunc) HandleFunc {
 	}
 }
 
-// handlerWithMetaInjection is a wrapper around the handler to add meta injectionHandlerWithRecovery.
+// handlerWithMetaInjection is a wrapper around the handler to add meta injection.
+// Uses global service info from meta.SetServiceInfo().
 func (c *Consumer) handlerWithMetaInjection(next HandleFunc) HandleFunc {
 	return func(ctx context.Context, msg *sarama.ConsumerMessage) error {
 		// add meta info to context
 		ctx = context.WithValue(ctx, meta.TraceID, getTraceID(ctx))
-		ctx = context.WithValue(ctx, meta.ServiceName, c.serviceName)
-		ctx = context.WithValue(ctx, meta.ServiceVersion, c.serviceVersion)
+		ctx = context.WithValue(ctx, meta.ServiceName, meta.GetServiceName())
+		ctx = context.WithValue(ctx, meta.ServiceVersion, meta.GetServiceVersion())
 
 		return next(ctx, msg)
 	}

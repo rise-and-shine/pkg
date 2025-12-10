@@ -22,18 +22,17 @@ type Message struct {
 type Producer struct {
 	cfg          ProducerConfig
 	topic        string
-	serviceName  string
 	saramaCfg    *sarama.Config
 	syncProducer sarama.SyncProducer
 }
 
 // NewProducer creates a new Kafka producer.
+// Uses global service info from meta.SetServiceInfo().
 func NewProducer(
 	cfg ProducerConfig,
 	topic string,
-	serviceName string,
 ) (*Producer, error) {
-	saramaCfg, err := cfg.getSaramaConfig(serviceName)
+	saramaCfg, err := cfg.getSaramaConfig()
 	if err != nil {
 		return nil, errx.Wrap(err)
 	}
@@ -50,7 +49,6 @@ func NewProducer(
 	return &Producer{
 		cfg:          cfg,
 		topic:        topic,
-		serviceName:  serviceName,
 		saramaCfg:    saramaCfg,
 		syncProducer: wrappedProducer,
 	}, nil
@@ -67,8 +65,7 @@ func (p *Producer) SendMessage(ctx context.Context, m *Message) error {
 			"topic":     kafkaMsg.Topic,
 			"partition": partition,
 			"offset":    offset,
-			"key":       string(m.Key),
-			"headers":   kafkaMsg.Headers,
+			"message":   kafkaMsg,
 		}))
 	}
 
@@ -84,7 +81,8 @@ func (p *Producer) SendMessages(ctx context.Context, messages []Message) error {
 	err := p.syncProducer.SendMessages(kafkaMessages)
 	if err != nil {
 		return errx.Wrap(err, errx.WithDetails(errx.D{
-			"topic": p.topic,
+			"topic":    p.topic,
+			"messages": messages,
 		}))
 	}
 

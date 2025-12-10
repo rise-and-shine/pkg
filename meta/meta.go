@@ -3,9 +3,36 @@ package meta
 
 import (
 	"context"
+	"sync"
 
 	"github.com/code19m/errx"
 )
+
+var (
+	globalServiceName    string
+	globalServiceVersion string
+	globalOnce           sync.Once
+)
+
+// SetServiceInfo sets the global service name and version.
+// This should be called once at application startup.
+// Subsequent calls are ignored.
+func SetServiceInfo(name, version string) {
+	globalOnce.Do(func() {
+		globalServiceName = name
+		globalServiceVersion = version
+	})
+}
+
+// GetServiceName returns the global service name.
+func GetServiceName() string {
+	return globalServiceName
+}
+
+// GetServiceVersion returns the global service version.
+func GetServiceVersion() string {
+	return globalServiceVersion
+}
 
 // ContextKey is a type for keys used in context values for metadata.
 type ContextKey string

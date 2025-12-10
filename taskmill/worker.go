@@ -37,29 +37,33 @@ type Worker interface {
 }
 
 // NewWorker creates a new Worker instance.
-func NewWorker(config *WorkerConfig) (Worker, error) {
-	config.setDefaults()
+func NewWorker(db *bun.DB, queueName string, opts ...WorkerOption) (Worker, error) {
+	options := defaultWorkerOptions()
+	for _, opt := range opts {
+		opt(&options)
+	}
 
-	if err := config.validate(); err != nil {
-		return nil, err
+	queue, err := pgqueue.NewQueue(schemaName, retryStrategy)
+	if err != nil {
+		return nil, errx.Wrap(err)
 	}
 
 	return &worker{
-		db:                config.DB,
-		serviceName:       config.ServiceName,
-		serviceVersion:    config.ServiceVersion,
-		queue:             config.Queue,
-		queueName:         config.QueueName,
-		messageGroupID:    config.MessageGroupID,
-		concurrency:       config.Concurrency,
-		pollInterval:      config.PollInterval,
-		visibilityTimeout: config.VisibilityTimeout,
-		batchSize:         config.BatchSize,
-		processTimeout:    config.ProcessTimeout,
-		tasksMap:          make(map[string]ucdef.AsyncTask[any]),
-		stopCh:            make(chan struct{}),
-		stoppedCh:         make(chan struct{}),
-		logger:            logger.Named("taskmill.worker"),
+		db:                db,
+		queue:             queue,
+		queueName:         queueName,
+		messageGroupID:    options.messageGroupID,
+		concurrency:       options.concurrency,
+		pollInterval:      options.pollInterval,
+		visibilityTimeout: options.visibilityTimeout,
+		batchSize:         options.batchSize,
+		processTimeout:    options.processTimeout,
+
+		tasksMap:  make(map[string]ucdef.AsyncTask[any]),
+		mu:        sync.RWMutex{},
+		stopCh:    make(chan struct{}),
+		stoppedCh: make(chan struct{}),
+		logger:    logger.Named("taskmill.worker"),
 	}, nil
 }
 
@@ -69,9 +73,6 @@ const (
 
 type worker struct {
 	db *bun.DB
-
-	serviceName    string
-	serviceVersion string
 
 	queue          pgqueue.Queue
 	queueName      string
@@ -103,11 +104,9 @@ func (w *worker) Start(ctx context.Context) error {
 	var wg sync.WaitGroup
 
 	for range w.concurrency {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			w.workerLoop(ctx)
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -127,6 +126,8 @@ func (w *worker) Stop() error {
 }
 
 func (w *worker) workerLoop(ctx context.Context) {
+	chain := w.buildProcessChain()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -150,7 +151,6 @@ func (w *worker) workerLoop(ctx context.Context) {
 
 			for _, msg := range messages {
 				// ignore error, since it's handled in the process chain
-				chain := w.buildProcessChain()
 				_ = chain(ctx, msg)
 			}
 		}
@@ -341,11 +341,12 @@ func (w *worker) processWithAlerting(next handleFunc) handleFunc {
 	}
 }
 
+// processWithMetaInjection uses global service info from meta.SetServiceInfo().
 func (w *worker) processWithMetaInjection(next handleFunc) handleFunc {
 	return func(ctx context.Context, m pgqueue.Message) error {
 		ctx = context.WithValue(ctx, meta.TraceID, getTraceID(ctx))
-		ctx = context.WithValue(ctx, meta.ServiceName, w.serviceName)
-		ctx = context.WithValue(ctx, meta.ServiceVersion, w.serviceVersion)
+		ctx = context.WithValue(ctx, meta.ServiceName, meta.GetServiceName())
+		ctx = context.WithValue(ctx, meta.ServiceVersion, meta.GetServiceVersion())
 		return next(ctx, m)
 	}
 }
