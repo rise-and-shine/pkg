@@ -39,7 +39,8 @@ func customErrorHandler(debug bool) fiber.ErrorHandler {
 			return err
 		}
 
-		return WriteErrorResponse(ctx, err, debug)
+		_ = WriteErrorResponse(ctx, err, debug)
+		return nil
 	}
 }
 
