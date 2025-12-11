@@ -127,7 +127,7 @@ type producerMessageContext struct {
 //
 // If `Return.Successes` is false, there is no way to know partition and offset of
 // the message.
-func WrapAsyncProducer( //nolint:gocognit,funlen // intentional
+func WrapAsyncProducer( //nolint:funlen // intentional
 	saramaConfig *sarama.Config,
 	p sarama.AsyncProducer,
 	opts ...Option,
