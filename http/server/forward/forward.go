@@ -59,6 +59,10 @@ func ToUseCase[I, O any](uc ucdef.UserAction[I, O]) fiber.Handler {
 			return errx.Wrap(err)
 		}
 
+		// Store the request and response in locals for logging
+		c.Locals("request_body", req)
+		c.Locals("response_body", resp)
+
 		// Write the success response
 		err = c.JSON(resp)
 		return errx.Wrap(err)
