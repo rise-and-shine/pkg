@@ -14,15 +14,15 @@ import (
 // It provides methods for different log levels and formatting options.
 type Logger interface {
 	// Debug logs a message at debug level.
-	Debug(args ...any)
+	Debug(msg any)
 	// Info logs a message at info level.
-	Info(args ...any)
+	Info(msg any)
 	// Warn logs a message at warn level.
-	Warn(args ...any)
+	Warn(msg any)
 	// Error logs a message at error level.
-	Error(args ...any)
+	Error(msg any)
 	// Fatal logs a message at fatal level and then calls os.Exit(1).
-	Fatal(args ...any)
+	Fatal(msg any)
 
 	// Debugf logs a formatted message at debug level.
 	Debugf(format string, args ...any)
@@ -169,4 +169,24 @@ func (l *logger) Named(name string) Logger {
 	return &logger{
 		SugaredLogger: l.SugaredLogger.Named(name),
 	}
+}
+
+func (l *logger) Debug(msg any) {
+	l.SugaredLogger.Debug(msg)
+}
+
+func (l *logger) Info(msg any) {
+	l.SugaredLogger.Info(msg)
+}
+
+func (l *logger) Warn(msg any) {
+	l.SugaredLogger.Warn(msg)
+}
+
+func (l *logger) Error(msg any) {
+	l.SugaredLogger.Error(msg)
+}
+
+func (l *logger) Fatal(msg any) {
+	l.SugaredLogger.Fatal(msg)
 }

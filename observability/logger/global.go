@@ -35,28 +35,28 @@ func SetGlobal(cfg Config) {
 }
 
 // Debug logs a message at debug level using the global logger.
-func Debug(args ...any) {
-	getGlobal().Debug(args...)
+func Debug(msg any) {
+	getGlobal().Debug(msg)
 }
 
 // Info logs a message at info level using the global logger.
-func Info(args ...any) {
-	getGlobal().Info(args...)
+func Info(msg any) {
+	getGlobal().Info(msg)
 }
 
 // Warn logs a message at warn level using the global logger.
-func Warn(args ...any) {
-	getGlobal().Warn(args...)
+func Warn(msg any) {
+	getGlobal().Warn(msg)
 }
 
 // Error logs a message at error level using the global logger.
-func Error(args ...any) {
-	getGlobal().Error(args...)
+func Error(msg any) {
+	getGlobal().Error(msg)
 }
 
 // Fatal logs a message at fatal level using the global logger and then calls os.Exit(1).
-func Fatal(args ...any) {
-	getGlobal().Fatal(args...)
+func Fatal(msg any) {
+	getGlobal().Fatal(msg)
 }
 
 // Debugf logs a formatted message at debug level using the global logger.
