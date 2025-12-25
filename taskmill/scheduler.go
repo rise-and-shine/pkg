@@ -2,7 +2,7 @@ package taskmill
 
 import (
 	"context"
-	"sync"
+	"database/sql"
 	"time"
 
 	"github.com/code19m/errx"
@@ -15,13 +15,15 @@ import (
 // Scheduler is a cron-based task scheduler.
 type Scheduler interface {
 	// RegisterSchedules registers new schedules.
-	RegisterSchedules(schedules ...Schedule) error
+	// This syncs schedules to the database: upserts provided schedules
+	// and deletes any schedules not in the list.
+	RegisterSchedules(ctx context.Context, schedules ...Schedule) error
 
 	// TriggerNow enqueues a task to run immediately.
 	TriggerNow(ctx context.Context, operationID string) error
 
-	// ListSchedules returns all registered schedules.
-	ListSchedules() []Schedule
+	// ListSchedules returns all registered schedules from the database.
+	ListSchedules(ctx context.Context) ([]ScheduleInfo, error)
 
 	// Start begins the scheduler loop.
 	// Blocks until Stop is called or context is cancelled.
@@ -31,6 +33,7 @@ type Scheduler interface {
 	Stop() error
 }
 
+// Schedule defines a cron-based schedule.
 type Schedule struct {
 	// CronPattern is a standard cron expression (e.g., "0 0 * * *" for daily at midnight).
 	CronPattern string
@@ -43,11 +46,27 @@ type Schedule struct {
 	EnqueueOptions []EnqueueOption
 }
 
+// ScheduleInfo contains schedule information from the database.
+type ScheduleInfo struct {
+	OperationID   string
+	CronPattern   string
+	NextRunAt     time.Time
+	LastRunAt     *time.Time
+	LastRunStatus *string
+	LastError     *string
+	RunCount      int64
+}
+
 // NewScheduler creates a new Scheduler instance.
 func NewScheduler(db *bun.DB, queueName string, opts ...SchedulerOption) (Scheduler, error) {
 	options := defaultSchedulerOptions()
 	for _, opt := range opts {
 		opt(&options)
+	}
+
+	queue, err := pgqueue.NewQueue(getSchemaName(), getRetryStrategy())
+	if err != nil {
+		return nil, errx.Wrap(err)
 	}
 
 	enqueuer, err := NewEnqueuer(queueName)
@@ -61,34 +80,36 @@ func NewScheduler(db *bun.DB, queueName string, opts ...SchedulerOption) (Schedu
 
 	scheduler := &scheduler{
 		db:            db,
+		queue:         queue,
 		enqueuer:      enqueuer,
+		queueName:     queueName,
 		checkInterval: options.checkInterval,
 		cronParser:    parser,
 
-		schedulesMap: map[string]scheduleTrack{},
-		mu:           sync.RWMutex{},
-		stopCh:       make(chan struct{}),
-		stoppedCh:    make(chan struct{}),
-		logger:       logger.Named("taskmill.scheduler"),
+		enqueueOptsMap: make(map[string][]EnqueueOption),
+		stopCh:         make(chan struct{}),
+		stoppedCh:      make(chan struct{}),
+		logger:         logger.Named("taskmill.scheduler"),
 	}
 
 	return scheduler, nil
 }
 
 const (
-	enqueueTimeout  = 10 * time.Second
 	shutdownTimeout = 10 * time.Second
 )
 
 type scheduler struct {
 	db *bun.DB
 
+	queue         pgqueue.Queue
 	enqueuer      Enqueuer
+	queueName     string
 	checkInterval time.Duration
 	cronParser    cron.Parser
 
-	schedulesMap map[string]scheduleTrack
-	mu           sync.RWMutex
+	// enqueueOptsMap stores enqueue options by operation ID (in-memory only)
+	enqueueOptsMap map[string][]EnqueueOption
 
 	stopCh    chan struct{}
 	stoppedCh chan struct{}
@@ -96,60 +117,107 @@ type scheduler struct {
 	logger logger.Logger
 }
 
-type scheduleTrack struct {
-	schedule     Schedule
-	cronSchedule cron.Schedule
+func (s *scheduler) RegisterSchedules(ctx context.Context, schedules ...Schedule) error {
+	operationIDs := make([]string, 0, len(schedules))
 
-	lastRun time.Time
-	nextRun time.Time
-}
-
-func (s *scheduler) RegisterSchedules(schedules ...Schedule) error {
 	for _, schedule := range schedules {
-		err := s.addSchedule(schedule)
+		// Parse and validate cron pattern
+		cronSchedule, err := s.cronParser.Parse(schedule.CronPattern)
+		if err != nil {
+			return errx.Wrap(err, errx.WithDetails(errx.D{"cron_pattern": schedule.CronPattern}))
+		}
+
+		// Calculate next run time
+		nextRun := cronSchedule.Next(time.Now())
+
+		// Upsert to database
+		dbSchedule := pgqueue.TaskSchedule{
+			OperationID: schedule.OperationID,
+			QueueName:   s.queueName,
+			CronPattern: schedule.CronPattern,
+			NextRunAt:   nextRun,
+		}
+
+		err = s.queue.UpsertSchedule(ctx, s.db, dbSchedule)
 		if err != nil {
 			return errx.Wrap(err)
 		}
-	}
-	return nil
-}
 
-func (s *scheduler) TriggerNow(ctx context.Context, operationID string) error {
-	s.mu.RLock()
-	st, ok := s.schedulesMap[operationID]
-	s.mu.RUnlock()
-	if !ok {
-		return errx.New(
-			"[taskmill]: schedule not found",
-			errx.WithCode(CodeScheduleNotFound),
-			errx.WithDetails(errx.D{"operation_id": operationID}),
-		)
+		// Store enqueue options in memory
+		s.enqueueOptsMap[schedule.OperationID] = schedule.EnqueueOptions
+		operationIDs = append(operationIDs, schedule.OperationID)
+
+		s.logger.With(
+			"operation_id", schedule.OperationID,
+			"cron_pattern", schedule.CronPattern,
+			"next_run", nextRun.Format(time.RFC3339),
+		).Info("[taskmill]: schedule registered")
 	}
 
-	_, err := s.enqueuer.Enqueue(
-		ctx,
-		s.db,
-		st.schedule.OperationID,
-		struct{}{},
-		st.schedule.EnqueueOptions...)
+	// Delete schedules not in the list
+	deleted, err := s.queue.DeleteSchedulesNotIn(ctx, s.db, operationIDs)
 	if err != nil {
 		return errx.Wrap(err)
 	}
 
-	return errx.Wrap(err)
+	if deleted > 0 {
+		s.logger.With("count", deleted).Info("[taskmill]: removed old schedules")
+	}
+
+	return nil
 }
 
-func (s *scheduler) ListSchedules() []Schedule {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	schedules := make([]Schedule, 0, len(s.schedulesMap))
-	for _, track := range s.schedulesMap {
-		schedules = append(schedules, track.schedule)
+func (s *scheduler) TriggerNow(ctx context.Context, operationID string) error {
+	// Get schedule from DB to verify it exists
+	schedule, err := s.queue.GetScheduleByOperationID(ctx, s.db, operationID)
+	if err != nil {
+		return errx.Wrap(err, errx.WithCode(CodeScheduleNotFound))
 	}
-	return schedules
+
+	// Get enqueue options from memory
+	opts := s.enqueueOptsMap[operationID]
+
+	// Enqueue the task
+	_, err = s.enqueuer.Enqueue(ctx, s.db, operationID, struct{}{}, opts...)
+	if err != nil {
+		return errx.Wrap(err)
+	}
+
+	// Update last_run_at in DB (but don't change next_run_at)
+	err = s.queue.UpdateScheduleSuccess(ctx, s.db, schedule.ID, schedule.NextRunAt)
+	if err != nil {
+		s.logger.With("operation_id", operationID, "error", err).
+			Warn("[taskmill]: failed to update schedule after manual trigger")
+	}
+
+	return nil
+}
+
+func (s *scheduler) ListSchedules(ctx context.Context) ([]ScheduleInfo, error) {
+	dbSchedules, err := s.queue.ListSchedules(ctx, s.db)
+	if err != nil {
+		return nil, errx.Wrap(err)
+	}
+
+	result := make([]ScheduleInfo, len(dbSchedules))
+	for i, sched := range dbSchedules {
+		result[i] = ScheduleInfo{
+			OperationID:   sched.OperationID,
+			CronPattern:   sched.CronPattern,
+			NextRunAt:     sched.NextRunAt,
+			LastRunAt:     sched.LastRunAt,
+			LastRunStatus: sched.LastRunStatus,
+			LastError:     sched.LastError,
+			RunCount:      sched.RunCount,
+		}
+	}
+
+	return result, nil
 }
 
 func (s *scheduler) Start(ctx context.Context) error {
+	defer close(s.stoppedCh)
+
 	ticker := time.NewTicker(s.checkInterval)
 	defer ticker.Stop()
 
@@ -159,11 +227,10 @@ func (s *scheduler) Start(ctx context.Context) error {
 			return nil
 
 		case <-s.stopCh:
-			close(s.stoppedCh)
 			return nil
 
-		case now := <-ticker.C:
-			s.checkSchedules(now)
+		case <-ticker.C:
+			s.checkSchedules(ctx)
 		}
 	}
 }
@@ -179,97 +246,92 @@ func (s *scheduler) Stop() error {
 	}
 }
 
-func (s *scheduler) addSchedule(schedule Schedule) error {
+func (s *scheduler) checkSchedules(ctx context.Context) {
+	// Process due schedules one at a time within transactions
+	for {
+		processed, err := s.processOneSchedule(ctx)
+		if err != nil {
+			s.logger.With("error", err).Error("[taskmill]: failed to process schedule")
+			return
+		}
+		if !processed {
+			// No more due schedules
+			return
+		}
+	}
+}
+
+func (s *scheduler) processOneSchedule(ctx context.Context) (bool, error) {
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		return false, errx.Wrap(err)
+	}
+	defer tx.Rollback() //nolint:errcheck // intentional
+
+	// Claim a due schedule with FOR UPDATE SKIP LOCKED
+	schedule, err := s.queue.ClaimDueSchedule(ctx, &tx)
+	if err != nil {
+		return false, errx.Wrap(err)
+	}
+
+	if schedule == nil {
+		// No due schedules
+		return false, nil
+	}
+
+	// Parse cron to calculate next run
 	cronSchedule, err := s.cronParser.Parse(schedule.CronPattern)
 	if err != nil {
-		return errx.Wrap(err, errx.WithDetails(errx.D{"cron_pattern": schedule.CronPattern}))
+		// Invalid cron pattern - mark as failed and skip
+		nextRun := time.Now().Add(time.Hour) // Retry in an hour
+		_ = s.queue.UpdateScheduleFailure(ctx, &tx, schedule.ID, nextRun, err.Error())
+		_ = tx.Commit()
+		return true, nil
 	}
 
-	now := time.Now()
-	nextRun := cronSchedule.Next(now)
+	nextRun := cronSchedule.Next(time.Now())
 
-	s.mu.Lock()
-	s.schedulesMap[schedule.OperationID] = scheduleTrack{
-		schedule:     schedule,
-		cronSchedule: cronSchedule,
-		lastRun:      now,
-		nextRun:      nextRun,
-	}
-	s.mu.Unlock()
+	// Get enqueue options from memory
+	opts := s.enqueueOptsMap[schedule.OperationID]
 
-	s.logger.With(
-		"operation_id", schedule.OperationID,
-		"cron_pattern", schedule.CronPattern,
-		"next_run", nextRun.Format(time.RFC3339),
-	).Info("[taskmill]: schedule registered")
+	// Enqueue the task within the same transaction
+	_, enqueueErr := s.enqueuer.Enqueue(ctx, &tx, schedule.OperationID, struct{}{}, opts...)
 
-	return nil
-}
-
-func (s *scheduler) checkSchedules(now time.Time) {
-	// Copy schedules while holding read lock to avoid deadlock
-	// (scheduleTask needs write lock to update nextRun)
-	s.mu.RLock()
-	toCheck := make([]scheduleTrack, 0, len(s.schedulesMap))
-	for _, st := range s.schedulesMap {
-		toCheck = append(toCheck, st)
-	}
-	s.mu.RUnlock()
-
-	for _, st := range toCheck {
-		if now.Before(st.nextRun) {
-			continue
-		}
-
-		err := s.scheduleTask(st)
-		if err != nil {
-			s.logger.With(
-				"operation_id", st.schedule.OperationID,
-				"cron_pattern", st.schedule.CronPattern,
-				"next_run", st.nextRun.Format(time.RFC3339),
-			).Error("[taskmill]: task scheduling failed: " + err.Error())
+	if enqueueErr != nil {
+		// Check if it's a duplicate (idempotency key collision)
+		if errx.IsCodeIn(enqueueErr, pgqueue.CodeDuplicateTask) {
+			// Not an error - just update next_run_at
+			err = s.queue.UpdateScheduleSuccess(ctx, &tx, schedule.ID, nextRun)
 		} else {
-			s.logger.With(
-				"operation_id", st.schedule.OperationID,
-				"cron_pattern", st.schedule.CronPattern,
-				"next_run", st.nextRun.Format(time.RFC3339),
-			).Info("[taskmill]: task scheduled successfully")
+			// Real error - mark as failed
+			err = s.queue.UpdateScheduleFailure(ctx, &tx, schedule.ID, nextRun, enqueueErr.Error())
 		}
+	} else {
+		// Success
+		err = s.queue.UpdateScheduleSuccess(ctx, &tx, schedule.ID, nextRun)
 	}
-}
 
-func (s *scheduler) scheduleTask(st scheduleTrack) error {
-	ctx, cancel := context.WithTimeout(context.Background(), enqueueTimeout)
-	defer cancel()
-
-	_, err := s.enqueuer.Enqueue(
-		ctx,
-		s.db,
-		st.schedule.OperationID,
-		struct{}{},
-		st.schedule.EnqueueOptions...,
-	)
-	if errx.IsCodeIn(err, pgqueue.CodeDuplicateTask) {
-		s.mu.Lock()
-		if current, ok := s.schedulesMap[st.schedule.OperationID]; ok {
-			current.lastRun = st.nextRun
-			current.nextRun = current.cronSchedule.Next(st.nextRun)
-			s.schedulesMap[st.schedule.OperationID] = current
-		}
-		s.mu.Unlock()
-		return nil
-	}
 	if err != nil {
-		return errx.Wrap(err)
+		return false, errx.Wrap(err)
 	}
 
-	// Update next run atomically - re-fetch from map to avoid race condition
-	s.mu.Lock()
-	if current, ok := s.schedulesMap[st.schedule.OperationID]; ok {
-		current.lastRun = st.nextRun
-		current.nextRun = current.cronSchedule.Next(st.nextRun)
-		s.schedulesMap[st.schedule.OperationID] = current
+	err = tx.Commit()
+	if err != nil {
+		return false, errx.Wrap(err)
 	}
-	s.mu.Unlock()
-	return nil
+
+	// Log the result
+	if enqueueErr != nil && !errx.IsCodeIn(enqueueErr, pgqueue.CodeDuplicateTask) {
+		s.logger.With(
+			"operation_id", schedule.OperationID,
+			"error", enqueueErr,
+		).Error("[taskmill]: task scheduling failed")
+	} else {
+		s.logger.With(
+			"operation_id", schedule.OperationID,
+			"next_run", nextRun.Format(time.RFC3339),
+		).Info("[taskmill]: task scheduled successfully")
+	}
+
+	return true, nil
 }

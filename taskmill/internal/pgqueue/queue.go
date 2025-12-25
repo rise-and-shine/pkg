@@ -30,6 +30,7 @@ package pgqueue
 
 import (
 	"context"
+	"time"
 
 	"github.com/code19m/errx"
 	"github.com/uptrace/bun"
@@ -69,6 +70,29 @@ type Queue interface {
 
 	// Migrate auto creates the queue schema and tables if they don't exist.
 	Migrate(ctx context.Context, db bun.IDB, schema string) error
+
+	// Schedule operations
+
+	// UpsertSchedule inserts or updates a schedule.
+	UpsertSchedule(ctx context.Context, db bun.IDB, schedule TaskSchedule) error
+
+	// DeleteSchedulesNotIn deletes schedules not in the provided operation IDs.
+	DeleteSchedulesNotIn(ctx context.Context, db bun.IDB, operationIDs []string) (int64, error)
+
+	// ClaimDueSchedule claims a single due schedule using FOR UPDATE SKIP LOCKED.
+	ClaimDueSchedule(ctx context.Context, db bun.IDB) (*TaskSchedule, error)
+
+	// UpdateScheduleSuccess updates a schedule after successful execution.
+	UpdateScheduleSuccess(ctx context.Context, db bun.IDB, id int64, nextRunAt time.Time) error
+
+	// UpdateScheduleFailure updates a schedule after failed execution.
+	UpdateScheduleFailure(ctx context.Context, db bun.IDB, id int64, nextRunAt time.Time, errMsg string) error
+
+	// ListSchedules returns all schedules.
+	ListSchedules(ctx context.Context, db bun.IDB) ([]TaskSchedule, error)
+
+	// GetScheduleByOperationID returns a schedule by its operation ID.
+	GetScheduleByOperationID(ctx context.Context, db bun.IDB, operationID string) (*TaskSchedule, error)
 }
 
 // QueueConfig configures a Queue instance.

@@ -42,18 +42,12 @@ func (q *queue) EnqueueBatch(
 	// Convert SingleTask to Task structs
 	dbTasks := make([]Task, 0, len(tasks))
 	for _, singleTask := range tasks {
-		// Normalize payload
-		payload := singleTask.Payload
-		if payload == nil {
-			payload = map[string]any{}
-		}
-
 		dbTasks = append(dbTasks, Task{
 			QueueName:      queueName,
 			TaskGroupID:    singleTask.TaskGroupID,
 			OperationID:    singleTask.OperationID,
 			Meta:           singleTask.Meta,
-			Payload:        payload,
+			Payload:        singleTask.Payload,
 			ScheduledAt:    singleTask.ScheduledAt,
 			VisibleAt:      singleTask.ScheduledAt, // Initially visible at scheduled time
 			Priority:       singleTask.Priority,
@@ -82,8 +76,9 @@ type TaskParams struct {
 	// Meta contains trace context and other metadata (optional).
 	Meta map[string]string
 
-	// Payload contains the business data (optional, can be empty map).
-	Payload map[string]any
+	// Payload contains the business data (optional).
+	// Must be a JSON-serializable type.
+	Payload any
 
 	// IdempotencyKey prevents duplicate tasks (required, non-empty).
 	IdempotencyKey string

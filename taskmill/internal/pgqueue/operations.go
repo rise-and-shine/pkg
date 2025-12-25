@@ -120,3 +120,46 @@ func (q *queue) CleanupResults(ctx context.Context, db bun.IDB, params CleanupRe
 	}
 	return q.cleanupTaskResults(ctx, db, params)
 }
+
+// Schedule operations
+
+// UpsertSchedule inserts or updates a schedule.
+func (q *queue) UpsertSchedule(ctx context.Context, db bun.IDB, schedule TaskSchedule) error {
+	return q.upsertSchedule(ctx, db, schedule)
+}
+
+// DeleteSchedulesNotIn deletes schedules not in the provided operation IDs.
+func (q *queue) DeleteSchedulesNotIn(ctx context.Context, db bun.IDB, operationIDs []string) (int64, error) {
+	return q.deleteSchedulesNotIn(ctx, db, operationIDs)
+}
+
+// ClaimDueSchedule claims a single due schedule using FOR UPDATE SKIP LOCKED.
+func (q *queue) ClaimDueSchedule(ctx context.Context, db bun.IDB) (*TaskSchedule, error) {
+	return q.claimDueSchedule(ctx, db)
+}
+
+// UpdateScheduleSuccess updates a schedule after successful execution.
+func (q *queue) UpdateScheduleSuccess(ctx context.Context, db bun.IDB, id int64, nextRunAt time.Time) error {
+	return q.updateScheduleSuccess(ctx, db, id, nextRunAt)
+}
+
+// UpdateScheduleFailure updates a schedule after failed execution.
+func (q *queue) UpdateScheduleFailure(
+	ctx context.Context,
+	db bun.IDB,
+	id int64,
+	nextRunAt time.Time,
+	errMsg string,
+) error {
+	return q.updateScheduleFailure(ctx, db, id, nextRunAt, errMsg)
+}
+
+// ListSchedules returns all schedules.
+func (q *queue) ListSchedules(ctx context.Context, db bun.IDB) ([]TaskSchedule, error) {
+	return q.listSchedules(ctx, db)
+}
+
+// GetScheduleByOperationID returns a schedule by its operation ID.
+func (q *queue) GetScheduleByOperationID(ctx context.Context, db bun.IDB, operationID string) (*TaskSchedule, error) {
+	return q.getScheduleByOperationID(ctx, db, operationID)
+}

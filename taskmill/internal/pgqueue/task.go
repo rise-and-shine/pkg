@@ -23,7 +23,8 @@ type Task struct {
 	Meta map[string]string `bun:"meta,type:jsonb"`
 
 	// Payload contains the business data as JSONB.
-	Payload map[string]any `bun:"payload,type:jsonb"`
+	// Must be a JSON-serializable type.
+	Payload any `bun:"payload,type:jsonb"`
 
 	// ScheduledAt indicates when the task becomes available for processing.
 	ScheduledAt time.Time `bun:"scheduled_at"`
@@ -86,7 +87,8 @@ type TaskResult struct {
 	Meta map[string]string `bun:"meta,type:jsonb"`
 
 	// Payload contains the original business data as JSONB.
-	Payload map[string]any `bun:"payload,type:jsonb"`
+	// Must be a JSON-serializable type.
+	Payload any `bun:"payload,type:jsonb"`
 
 	// Priority is the original priority.
 	Priority int `bun:"priority"`
@@ -139,6 +141,42 @@ type CleanupResultsParams struct {
 
 	// QueueName filters cleanup to a specific queue (optional).
 	QueueName *string
+}
+
+// TaskSchedule represents a cron-based schedule stored in the database.
+type TaskSchedule struct {
+	// ID is the unique identifier for the schedule.
+	ID int64 `bun:"id,pk"`
+
+	// OperationID uniquely identifies the scheduled task.
+	OperationID string `bun:"operation_id"`
+
+	// QueueName is the queue to enqueue tasks to.
+	QueueName string `bun:"queue_name"`
+
+	// CronPattern is the cron expression for scheduling.
+	CronPattern string `bun:"cron_pattern"`
+
+	// NextRunAt is when the schedule should next execute.
+	NextRunAt time.Time `bun:"next_run_at"`
+
+	// LastRunAt is when the schedule last executed.
+	LastRunAt *time.Time `bun:"last_run_at"`
+
+	// LastRunStatus is the status of the last run ('success' or 'failed').
+	LastRunStatus *string `bun:"last_run_status"`
+
+	// LastError contains the error message if the last run failed.
+	LastError *string `bun:"last_error"`
+
+	// RunCount is the total number of successful runs.
+	RunCount int64 `bun:"run_count"`
+
+	// CreatedAt is when the schedule was created.
+	CreatedAt time.Time `bun:"created_at"`
+
+	// UpdatedAt is when the schedule was last updated.
+	UpdatedAt time.Time `bun:"updated_at"`
 }
 
 // QueueStats contains statistics about a queue.

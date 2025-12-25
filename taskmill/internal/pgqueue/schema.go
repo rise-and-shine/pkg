@@ -17,6 +17,9 @@ const (
 	// tableNameTaskResults is the name of the task results table.
 	tableNameTaskResults = "task_results"
 
+	// tableNameTaskSchedules is the name of the task schedules table.
+	tableNameTaskSchedules = "task_schedules"
+
 	// migrationTimeout is the maximum time allowed for the database schema migration.
 	migrationTimeout = time.Second * 10
 )
@@ -25,14 +28,17 @@ const (
 func generateSchemaSQL(schema string) string {
 	taskQueueTable := schema + "." + tableNameTaskQueue
 	taskResultsTable := schema + "." + tableNameTaskResults
+	taskSchedulesTable := schema + "." + tableNameTaskSchedules
 
 	var sql strings.Builder
 
 	writeSection(&sql, createSchema(schema))
 	writeSection(&sql, createTaskTable(taskQueueTable))
 	writeSection(&sql, createTaskResultsTable(taskResultsTable))
+	writeSection(&sql, createTaskSchedulesTable(taskSchedulesTable))
 	writeSection(&sql, createIndexes(taskQueueTable))
 	writeSection(&sql, createTaskResultsIndexes(taskResultsTable))
+	writeSection(&sql, createTaskSchedulesIndexes(taskSchedulesTable))
 	writeSection(&sql, createTriggers(schema, taskQueueTable))
 	writeSection(&sql, createStatsView(schema, taskQueueTable))
 
@@ -121,6 +127,32 @@ CREATE TABLE IF NOT EXISTS %s (
 );`, table)
 }
 
+func createTaskSchedulesTable(table string) string {
+	return fmt.Sprintf(`
+-- Task schedules table for cron-based scheduling
+CREATE TABLE IF NOT EXISTS %s (
+    id BIGSERIAL PRIMARY KEY,
+
+    -- Identity
+    operation_id VARCHAR(255) NOT NULL UNIQUE,
+    queue_name VARCHAR(255) NOT NULL,
+    cron_pattern VARCHAR(100) NOT NULL,
+
+    -- State
+    next_run_at TIMESTAMPTZ NOT NULL,
+
+    -- Execution tracking
+    last_run_at TIMESTAMPTZ,
+    last_run_status VARCHAR(20),
+    last_error TEXT,
+    run_count BIGINT NOT NULL DEFAULT 0,
+
+    -- Audit
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);`, table)
+}
+
 func createIndexes(table string) string {
 	return fmt.Sprintf(`
 -- Critical indexes for performance
@@ -179,6 +211,17 @@ CREATE INDEX IF NOT EXISTS idx_task_results_operation
 ON %s (queue_name, operation_id, completed_at DESC);`, table, table, table, table)
 }
 
+func createTaskSchedulesIndexes(table string) string {
+	return fmt.Sprintf(`
+-- Index for finding due schedules
+CREATE INDEX IF NOT EXISTS idx_task_schedules_due
+ON %s (next_run_at);
+
+-- Index for querying by queue
+CREATE INDEX IF NOT EXISTS idx_task_schedules_queue
+ON %s (queue_name);`, table, table)
+}
+
 func createTriggers(schema, table string) string {
 	return fmt.Sprintf(`
 -- Update timestamp trigger
@@ -200,7 +243,7 @@ CREATE TRIGGER trigger_task_queue_updated_at
 func createStatsView(schema, table string) string {
 	return fmt.Sprintf(`
 -- Stats view for monitoring
-CREATE OR REPLACE VIEW %s.queue_stats AS
+CREATE OR REPLACE VIEW %s.task_queue_stats AS
 SELECT
     queue_name,
     COUNT(*) FILTER (WHERE dlq_at IS NULL) as total,

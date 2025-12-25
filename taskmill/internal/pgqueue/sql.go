@@ -25,6 +25,11 @@ func (q *queue) resultsTableName() string {
 	return fmt.Sprintf("%s.%s", q.schema, tableNameTaskResults)
 }
 
+// schedulesTableName returns the fully qualified task_schedules table name.
+func (q *queue) schedulesTableName() string {
+	return fmt.Sprintf("%s.%s", q.schema, tableNameTaskSchedules)
+}
+
 // insertTasks inserts multiple tasks in a single batch and returns their IDs.
 func (q *queue) insertTasks(ctx context.Context, db bun.IDB, tasks []Task) ([]int64, error) {
 	if len(tasks) == 0 {
@@ -413,4 +418,151 @@ func (q *queue) cleanupTaskResults(ctx context.Context, db bun.IDB, params Clean
 	}
 
 	return rowsAffected, nil
+}
+
+// upsertSchedule inserts or updates a schedule.
+func (q *queue) upsertSchedule(ctx context.Context, db bun.IDB, schedule TaskSchedule) error {
+	query := fmt.Sprintf(`
+		INSERT INTO %s (operation_id, queue_name, cron_pattern, next_run_at)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT (operation_id) DO UPDATE SET
+			queue_name = EXCLUDED.queue_name,
+			cron_pattern = EXCLUDED.cron_pattern,
+			next_run_at = CASE
+				WHEN %s.cron_pattern != EXCLUDED.cron_pattern THEN EXCLUDED.next_run_at
+				ELSE %s.next_run_at
+			END,
+			updated_at = NOW()
+	`, q.schedulesTableName(), q.schedulesTableName(), q.schedulesTableName())
+
+	_, err := db.ExecContext(ctx, query,
+		schedule.OperationID,
+		schedule.QueueName,
+		schedule.CronPattern,
+		schedule.NextRunAt,
+	)
+	return errx.Wrap(err)
+}
+
+// deleteSchedulesNotIn deletes schedules not in the provided operation IDs.
+func (q *queue) deleteSchedulesNotIn(ctx context.Context, db bun.IDB, operationIDs []string) (int64, error) {
+	if len(operationIDs) == 0 {
+		// Delete all schedules if no IDs provided
+		query := fmt.Sprintf(`DELETE FROM %s`, q.schedulesTableName())
+		result, err := db.ExecContext(ctx, query)
+		if err != nil {
+			return 0, errx.Wrap(err)
+		}
+		return result.RowsAffected()
+	}
+
+	// Build placeholders for IN clause
+	placeholders := make([]string, len(operationIDs))
+	args := make([]any, len(operationIDs))
+	for i, id := range operationIDs {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+
+	query := fmt.Sprintf(`
+		DELETE FROM %s
+		WHERE operation_id NOT IN (%s)
+	`, q.schedulesTableName(), strings.Join(placeholders, ", "))
+
+	result, err := db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, errx.Wrap(err)
+	}
+	return result.RowsAffected()
+}
+
+// claimDueSchedule claims a single due schedule using FOR UPDATE SKIP LOCKED.
+// Returns nil if no schedule is due.
+func (q *queue) claimDueSchedule(ctx context.Context, db bun.IDB) (*TaskSchedule, error) {
+	query := fmt.Sprintf(`
+		SELECT *
+		FROM %s
+		WHERE next_run_at <= NOW()
+		ORDER BY next_run_at
+		LIMIT 1
+		FOR UPDATE SKIP LOCKED
+	`, q.schedulesTableName())
+
+	schedule := new(TaskSchedule)
+	err := db.NewRaw(query).Scan(ctx, schedule)
+	if err != nil {
+		if err.Error() == "sql: no rows in result set" {
+			return nil, nil
+		}
+		return nil, errx.Wrap(err)
+	}
+
+	return schedule, nil
+}
+
+// updateScheduleSuccess updates a schedule after successful execution.
+func (q *queue) updateScheduleSuccess(ctx context.Context, db bun.IDB, id int64, nextRunAt time.Time) error {
+	query := fmt.Sprintf(`
+		UPDATE %s
+		SET next_run_at = ?,
+		    last_run_at = NOW(),
+		    last_run_status = 'success',
+		    last_error = NULL,
+		    run_count = run_count + 1,
+		    updated_at = NOW()
+		WHERE id = ?
+	`, q.schedulesTableName())
+
+	_, err := db.ExecContext(ctx, query, nextRunAt, id)
+	return errx.Wrap(err)
+}
+
+// updateScheduleFailure updates a schedule after failed execution.
+func (q *queue) updateScheduleFailure(ctx context.Context, db bun.IDB, id int64, nextRunAt time.Time, errMsg string) error {
+	query := fmt.Sprintf(`
+		UPDATE %s
+		SET next_run_at = ?,
+		    last_run_at = NOW(),
+		    last_run_status = 'failed',
+		    last_error = ?,
+		    updated_at = NOW()
+		WHERE id = ?
+	`, q.schedulesTableName())
+
+	_, err := db.ExecContext(ctx, query, nextRunAt, errMsg, id)
+	return errx.Wrap(err)
+}
+
+// listSchedules returns all schedules.
+func (q *queue) listSchedules(ctx context.Context, db bun.IDB) ([]TaskSchedule, error) {
+	query := fmt.Sprintf(`
+		SELECT *
+		FROM %s
+		ORDER BY next_run_at
+	`, q.schedulesTableName())
+
+	var schedules []TaskSchedule
+	_, err := db.NewRaw(query).Exec(ctx, &schedules)
+	if err != nil {
+		return nil, errx.Wrap(err)
+	}
+
+	return schedules, nil
+}
+
+// getScheduleByOperationID returns a schedule by its operation ID.
+func (q *queue) getScheduleByOperationID(ctx context.Context, db bun.IDB, operationID string) (*TaskSchedule, error) {
+	query := fmt.Sprintf(`
+		SELECT *
+		FROM %s
+		WHERE operation_id = ?
+	`, q.schedulesTableName())
+
+	schedule := new(TaskSchedule)
+	err := db.NewRaw(query, operationID).Scan(ctx, schedule)
+	if err != nil {
+		return nil, errx.Wrap(err)
+	}
+
+	return schedule, nil
 }

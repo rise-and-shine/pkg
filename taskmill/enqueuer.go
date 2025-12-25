@@ -54,13 +54,10 @@ func (e *enqueuer) Enqueue(
 	// Build meta with trace context
 	meta := buildMeta(ctx)
 
-	// Normalize payload to map[string]any
-	normalizedPayload := normalizePayload(payload)
-
 	singleTask := pgqueue.TaskParams{
 		OperationID:    operationID,
 		Meta:           meta,
-		Payload:        normalizedPayload,
+		Payload:        payload,
 		IdempotencyKey: options.idempotencyKey,
 		TaskGroupID:    options.taskGroupID,
 		Priority:       options.priority,
@@ -92,20 +89,4 @@ func buildMeta(ctx context.Context) map[string]string {
 	carrier := make(map[string]string)
 	propagator.Inject(ctx, propagation.MapCarrier(carrier))
 	return carrier
-}
-
-// normalizePayload converts the payload to map[string]any.
-// If payload is nil, returns an empty map.
-// If payload is already map[string]any, returns it directly.
-// Otherwise, wraps it in a map with "data" key.
-func normalizePayload(payload any) map[string]any {
-	if payload == nil {
-		return map[string]any{}
-	}
-
-	if m, ok := payload.(map[string]any); ok {
-		return m
-	}
-
-	return map[string]any{"data": payload}
 }
