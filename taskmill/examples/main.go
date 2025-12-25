@@ -130,6 +130,7 @@ func main() {
 	enqueuer := createEnqueuer()
 	worker := createWorker(db)
 	scheduler := createScheduler(ctx, db)
+	console := createConsole(db)
 
 	// Start worker and scheduler in background
 	var wg sync.WaitGroup
@@ -156,9 +157,9 @@ func main() {
 	log.Println("\n=== Enqueuing tasks ===")
 	enqueueTasks(ctx, db, enqueuer)
 
-	// List schedules
-	log.Println("\n=== Registered Schedules ===")
-	listSchedules(ctx, scheduler)
+	// Demonstrate Console functionality
+	log.Println("\n=== Console Demo ===")
+	demonstrateConsole(ctx, console)
 
 	// Wait for signal
 	log.Println("\n=== Running (press Ctrl+C to stop) ===")
@@ -239,7 +240,6 @@ func createScheduler(ctx context.Context, db *bun.DB) taskmill.Scheduler {
 			OperationID: "cleanup.expired",
 			CronPattern: "* * * * *", // Every minute
 			EnqueueOptions: []taskmill.EnqueueOption{
-				taskmill.WithIdempotencyKey(taskmill.UniqueFor("cleanup.expired", time.Minute)),
 				taskmill.WithEphemeral(), // Don't save results for scheduled cleanup
 			},
 		},
@@ -248,7 +248,6 @@ func createScheduler(ctx context.Context, db *bun.DB) taskmill.Scheduler {
 			OperationID: "health.check",
 			CronPattern: "*/2 * * * *", // Every 2 minutes
 			EnqueueOptions: []taskmill.EnqueueOption{
-				taskmill.WithIdempotencyKey(taskmill.UniqueFor("health.check", 2*time.Minute)),
 				taskmill.WithEphemeral(),
 			},
 		},
@@ -259,6 +258,14 @@ func createScheduler(ctx context.Context, db *bun.DB) taskmill.Scheduler {
 
 	log.Println("Scheduler created with schedules: cleanup.expired (every min), health.check (every 2 min)")
 	return scheduler
+}
+
+func createConsole(db *bun.DB) taskmill.Console {
+	console, err := taskmill.NewConsole(db)
+	if err != nil {
+		log.Fatalf("Failed to create console: %v", err)
+	}
+	return console
 }
 
 func enqueueTasks(ctx context.Context, db *bun.DB, enqueuer taskmill.Enqueuer) {
@@ -340,21 +347,94 @@ func enqueueTasks(ctx context.Context, db *bun.DB, enqueuer taskmill.Enqueuer) {
 	}
 }
 
-func listSchedules(ctx context.Context, scheduler taskmill.Scheduler) {
-	schedules, err := scheduler.ListSchedules(ctx)
+func demonstrateConsole(ctx context.Context, console taskmill.Console) {
+	// 1. List all queues
+	log.Println("\n--- ListQueues ---")
+	queues, err := console.ListQueues(ctx)
 	if err != nil {
-		log.Printf("Failed to list schedules: %v", err)
-		return
+		log.Printf("Failed to list queues: %v", err)
+	} else {
+		log.Printf("Available queues: %v", queues)
 	}
 
-	for _, s := range schedules {
-		log.Printf("  - %s (%s) next_run=%s runs=%d",
-			s.OperationID,
-			s.CronPattern,
-			s.NextRunAt.Format(time.RFC3339),
-			s.RunCount,
-		)
+	// 2. Get queue statistics
+	log.Println("\n--- Stats ---")
+	stats, err := console.Stats(ctx, queueName)
+	if err != nil {
+		log.Printf("Failed to get stats: %v", err)
+	} else {
+		log.Printf("Queue '%s' stats:", stats.QueueName)
+		log.Printf("  Total: %d, Available: %d, InFlight: %d, Scheduled: %d, InDLQ: %d",
+			stats.Total, stats.Available, stats.InFlight, stats.Scheduled, stats.InDLQ)
+		log.Printf("  AvgAttempts: %.2f, P95Attempts: %.2f", stats.AvgAttempts, stats.P95Attempts)
 	}
+
+	// 3. List all schedules
+	log.Println("\n--- ListSchedules ---")
+	schedules, err := console.ListSchedules(ctx, nil)
+	if err != nil {
+		log.Printf("Failed to list schedules: %v", err)
+	} else {
+		for _, s := range schedules {
+			status := "never run"
+			if s.LastRunStatus != nil {
+				status = *s.LastRunStatus
+			}
+			log.Printf("  - %s (%s) next=%s runs=%d status=%s",
+				s.OperationID,
+				s.CronPattern,
+				s.NextRunAt.Format(time.RFC3339),
+				s.RunCount,
+				status,
+			)
+		}
+	}
+
+	// 4. Trigger a schedule manually
+	log.Println("\n--- TriggerSchedule ---")
+	err = console.TriggerSchedule(ctx, "health.check", taskmill.WithPriority(50))
+	if err != nil {
+		log.Printf("Failed to trigger schedule: %v", err)
+	} else {
+		log.Println("Triggered 'health.check' schedule manually with priority 50")
+	}
+
+	// 5. List completed task results
+	log.Println("\n--- ListResults ---")
+	results, err := console.ListResults(ctx, taskmill.ListResultsParams{
+		Limit: 5,
+	})
+	if err != nil {
+		log.Printf("Failed to list results: %v", err)
+	} else {
+		log.Printf("Recent completed tasks (%d):", len(results))
+		for _, r := range results {
+			log.Printf("  - ID=%d op=%s queue=%s attempts=%d completed=%s",
+				r.ID, r.OperationID, r.QueueName, r.Attempts,
+				r.CompletedAt.Format(time.RFC3339))
+		}
+	}
+
+	// 6. Cleanup old results (example: delete results older than 1 hour)
+	log.Println("\n--- CleanupResults ---")
+	oneHourAgo := time.Now().Add(-1 * time.Hour)
+	deleted, err := console.CleanupResults(ctx, taskmill.CleanupResultsParams{
+		CompletedBefore: oneHourAgo,
+	})
+	if err != nil {
+		log.Printf("Failed to cleanup results: %v", err)
+	} else {
+		log.Printf("Cleaned up %d old task results (completed before %s)", deleted, oneHourAgo.Format(time.RFC3339))
+	}
+
+	// 7. Purge operations (commented out - destructive!)
+	// log.Println("\n--- Purge/PurgeDLQ ---")
+	// console.Purge(ctx, queueName)      // Deletes all pending tasks
+	// console.PurgeDLQ(ctx, queueName)   // Deletes all DLQ tasks
+
+	// 8. Requeue from DLQ (would need a task ID)
+	// log.Println("\n--- RequeueFromDLQ ---")
+	// console.RequeueFromDLQ(ctx, taskID) // Moves task from DLQ back to queue
 }
 
 func setDefaults(config any) {

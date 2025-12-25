@@ -1,7 +1,6 @@
 package taskmill
 
 import (
-	"fmt"
 	"time"
 )
 
@@ -75,12 +74,4 @@ func WithEphemeral() EnqueueOption {
 	return func(opts *enqueueOptions) {
 		opts.ephemeral = true
 	}
-}
-
-// UniqueFor return idempotency key that is unique for a given operation.
-func UniqueFor(operationID string, dur time.Duration) string {
-	return fmt.Sprintf("%s:%d",
-		operationID,
-		time.Now().Truncate(dur).Unix(),
-	)
 }

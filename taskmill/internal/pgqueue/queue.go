@@ -62,6 +62,9 @@ type Queue interface {
 	// Stats returns statistics about a queue.
 	Stats(ctx context.Context, db bun.IDB, queueName string) (*QueueStats, error)
 
+	// ListQueues returns all distinct queue names.
+	ListQueues(ctx context.Context, db bun.IDB) ([]string, error)
+
 	// ListResults queries completed tasks from task_results with optional filters.
 	ListResults(ctx context.Context, db bun.IDB, params ListResultsParams) ([]TaskResult, error)
 
@@ -88,8 +91,8 @@ type Queue interface {
 	// UpdateScheduleFailure updates a schedule after failed execution.
 	UpdateScheduleFailure(ctx context.Context, db bun.IDB, id int64, nextRunAt time.Time, errMsg string) error
 
-	// ListSchedules returns all schedules.
-	ListSchedules(ctx context.Context, db bun.IDB) ([]TaskSchedule, error)
+	// ListSchedules returns schedules, optionally filtered by queue name.
+	ListSchedules(ctx context.Context, db bun.IDB, queueName *string) ([]TaskSchedule, error)
 
 	// GetScheduleByOperationID returns a schedule by its operation ID.
 	GetScheduleByOperationID(ctx context.Context, db bun.IDB, operationID string) (*TaskSchedule, error)

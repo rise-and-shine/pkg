@@ -19,12 +19,6 @@ type Scheduler interface {
 	// and deletes any schedules not in the list.
 	RegisterSchedules(ctx context.Context, schedules ...Schedule) error
 
-	// TriggerNow enqueues a task to run immediately.
-	TriggerNow(ctx context.Context, operationID string) error
-
-	// ListSchedules returns all registered schedules from the database.
-	ListSchedules(ctx context.Context) ([]ScheduleInfo, error)
-
 	// Start begins the scheduler loop.
 	// Blocks until Stop is called or context is cancelled.
 	Start(ctx context.Context) error
@@ -44,17 +38,6 @@ type Schedule struct {
 
 	// EnqueueOptions are additional options for enqueuing the task.
 	EnqueueOptions []EnqueueOption
-}
-
-// ScheduleInfo contains schedule information from the database.
-type ScheduleInfo struct {
-	OperationID   string
-	CronPattern   string
-	NextRunAt     time.Time
-	LastRunAt     *time.Time
-	LastRunStatus *string
-	LastError     *string
-	RunCount      int64
 }
 
 // NewScheduler creates a new Scheduler instance.
@@ -165,54 +148,6 @@ func (s *scheduler) RegisterSchedules(ctx context.Context, schedules ...Schedule
 	}
 
 	return nil
-}
-
-func (s *scheduler) TriggerNow(ctx context.Context, operationID string) error {
-	// Get schedule from DB to verify it exists
-	schedule, err := s.queue.GetScheduleByOperationID(ctx, s.db, operationID)
-	if err != nil {
-		return errx.Wrap(err, errx.WithCode(CodeScheduleNotFound))
-	}
-
-	// Get enqueue options from memory
-	opts := s.enqueueOptsMap[operationID]
-
-	// Enqueue the task
-	_, err = s.enqueuer.Enqueue(ctx, s.db, operationID, struct{}{}, opts...)
-	if err != nil {
-		return errx.Wrap(err)
-	}
-
-	// Update last_run_at in DB (but don't change next_run_at)
-	err = s.queue.UpdateScheduleSuccess(ctx, s.db, schedule.ID, schedule.NextRunAt)
-	if err != nil {
-		s.logger.With("operation_id", operationID, "error", err).
-			Warn("[taskmill]: failed to update schedule after manual trigger")
-	}
-
-	return nil
-}
-
-func (s *scheduler) ListSchedules(ctx context.Context) ([]ScheduleInfo, error) {
-	dbSchedules, err := s.queue.ListSchedules(ctx, s.db)
-	if err != nil {
-		return nil, errx.Wrap(err)
-	}
-
-	result := make([]ScheduleInfo, len(dbSchedules))
-	for i, sched := range dbSchedules {
-		result[i] = ScheduleInfo{
-			OperationID:   sched.OperationID,
-			CronPattern:   sched.CronPattern,
-			NextRunAt:     sched.NextRunAt,
-			LastRunAt:     sched.LastRunAt,
-			LastRunStatus: sched.LastRunStatus,
-			LastError:     sched.LastError,
-			RunCount:      sched.RunCount,
-		}
-	}
-
-	return result, nil
 }
 
 func (s *scheduler) Start(ctx context.Context) error {

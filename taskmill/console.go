@@ -1,0 +1,225 @@
+package taskmill
+
+import (
+	"context"
+
+	"github.com/code19m/errx"
+	"github.com/rise-and-shine/pkg/taskmill/internal/pgqueue"
+	"github.com/uptrace/bun"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
+)
+
+// Console provides administrative and monitoring operations for taskmill.
+// It is a global component that works across all queues.
+type Console interface {
+	// ListQueues returns all distinct queue names.
+	ListQueues(ctx context.Context) ([]string, error)
+
+	// Stats returns queue statistics.
+	Stats(ctx context.Context, queueName string) (*QueueStats, error)
+
+	// ListSchedules returns registered cron schedules with execution history.
+	// If queueName is provided, only schedules for that queue are returned.
+	ListSchedules(ctx context.Context, queueName *string) ([]ScheduleInfo, error)
+
+	// Purge removes all non-DLQ tasks from a queue.
+	Purge(ctx context.Context, queueName string) error
+
+	// PurgeDLQ removes all tasks from the dead letter queue.
+	PurgeDLQ(ctx context.Context, queueName string) error
+
+	// RequeueFromDLQ moves a task from DLQ back to the main queue for retry.
+	RequeueFromDLQ(ctx context.Context, taskID int64) error
+
+	// TriggerSchedule manually triggers a scheduled task to run immediately.
+	// The task is enqueued to the queue specified in the schedule.
+	TriggerSchedule(ctx context.Context, operationID string, opts ...EnqueueOption) error
+
+	// ListResults queries completed task history with filtering.
+	ListResults(ctx context.Context, params ListResultsParams) ([]TaskResult, error)
+
+	// CleanupResults deletes old task results. Returns count of deleted records.
+	CleanupResults(ctx context.Context, params CleanupResultsParams) (int64, error)
+}
+
+// NewConsole creates a new Console instance.
+// Console is a global administrative component that works across all queues.
+func NewConsole(db *bun.DB) (Console, error) {
+	queue, err := pgqueue.NewQueue(getSchemaName(), getRetryStrategy())
+	if err != nil {
+		return nil, errx.Wrap(err)
+	}
+
+	return &console{
+		db:    db,
+		queue: queue,
+	}, nil
+}
+
+type console struct {
+	db    *bun.DB
+	queue pgqueue.Queue
+}
+
+func (c *console) ListQueues(ctx context.Context) ([]string, error) {
+	queues, err := c.queue.ListQueues(ctx, c.db)
+	if err != nil {
+		return nil, errx.Wrap(err)
+	}
+	return queues, nil
+}
+
+func (c *console) Stats(ctx context.Context, queueName string) (*QueueStats, error) {
+	stats, err := c.queue.Stats(ctx, c.db, queueName)
+	if err != nil {
+		return nil, errx.Wrap(err)
+	}
+
+	return &QueueStats{
+		QueueName:   stats.QueueName,
+		Total:       stats.Total,
+		Available:   stats.Available,
+		InFlight:    stats.InFlight,
+		Scheduled:   stats.Scheduled,
+		InDLQ:       stats.InDLQ,
+		OldestTask:  stats.OldestTask,
+		AvgAttempts: stats.AvgAttempts,
+		P95Attempts: stats.P95Attempts,
+	}, nil
+}
+
+func (c *console) ListSchedules(ctx context.Context, queueName *string) ([]ScheduleInfo, error) {
+	dbSchedules, err := c.queue.ListSchedules(ctx, c.db, queueName)
+	if err != nil {
+		return nil, errx.Wrap(err)
+	}
+
+	result := make([]ScheduleInfo, len(dbSchedules))
+	for i, sched := range dbSchedules {
+		result[i] = ScheduleInfo{
+			OperationID:   sched.OperationID,
+			QueueName:     sched.QueueName,
+			CronPattern:   sched.CronPattern,
+			NextRunAt:     sched.NextRunAt,
+			LastRunAt:     sched.LastRunAt,
+			LastRunStatus: sched.LastRunStatus,
+			LastError:     sched.LastError,
+			RunCount:      sched.RunCount,
+		}
+	}
+
+	return result, nil
+}
+
+func (c *console) Purge(ctx context.Context, queueName string) error {
+	return errx.Wrap(c.queue.Purge(ctx, c.db, queueName))
+}
+
+func (c *console) PurgeDLQ(ctx context.Context, queueName string) error {
+	return errx.Wrap(c.queue.PurgeDLQ(ctx, c.db, queueName))
+}
+
+func (c *console) RequeueFromDLQ(ctx context.Context, taskID int64) error {
+	return errx.Wrap(c.queue.RequeueFromDLQ(ctx, c.db, taskID))
+}
+
+func (c *console) TriggerSchedule(ctx context.Context, operationID string, opts ...EnqueueOption) error {
+	// Get schedule from DB to verify it exists and get its queue name
+	schedule, err := c.queue.GetScheduleByOperationID(ctx, c.db, operationID)
+	if err != nil {
+		return errx.Wrap(err, errx.WithCode(CodeScheduleNotFound))
+	}
+
+	// Apply enqueue options
+	options := defaultEnqueueOptions()
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	// Build meta with trace context
+	meta := buildConsoleMeta(ctx)
+
+	// Build task params
+	taskParams := pgqueue.TaskParams{
+		OperationID:    operationID,
+		Meta:           meta,
+		Payload:        struct{}{}, // Empty payload for scheduled tasks
+		IdempotencyKey: options.idempotencyKey,
+		TaskGroupID:    options.taskGroupID,
+		Priority:       options.priority,
+		ScheduledAt:    options.scheduledAt,
+		MaxAttempts:    options.maxAttempts,
+		ExpiresAt:      options.expiresAt,
+		Ephemeral:      options.ephemeral,
+	}
+
+	// Enqueue to the queue specified in the schedule
+	_, err = c.queue.EnqueueBatch(ctx, c.db, schedule.QueueName, []pgqueue.TaskParams{taskParams})
+	if err != nil {
+		return errx.Wrap(err)
+	}
+
+	// Update last_run_at in DB (but don't change next_run_at)
+	_ = c.queue.UpdateScheduleSuccess(ctx, c.db, schedule.ID, schedule.NextRunAt)
+
+	return nil
+}
+
+func (c *console) ListResults(ctx context.Context, params ListResultsParams) ([]TaskResult, error) {
+	pgParams := pgqueue.ListResultsParams{
+		QueueName:       params.QueueName,
+		TaskGroupID:     params.TaskGroupID,
+		CompletedAfter:  params.CompletedAfter,
+		CompletedBefore: params.CompletedBefore,
+		Limit:           params.Limit,
+		Offset:          params.Offset,
+	}
+
+	dbResults, err := c.queue.ListResults(ctx, c.db, pgParams)
+	if err != nil {
+		return nil, errx.Wrap(err)
+	}
+
+	results := make([]TaskResult, len(dbResults))
+	for i, r := range dbResults {
+		results[i] = TaskResult{
+			ID:             r.ID,
+			QueueName:      r.QueueName,
+			TaskGroupID:    r.TaskGroupID,
+			OperationID:    r.OperationID,
+			Payload:        r.Payload,
+			Priority:       r.Priority,
+			Attempts:       r.Attempts,
+			MaxAttempts:    r.MaxAttempts,
+			IdempotencyKey: r.IdempotencyKey,
+			ScheduledAt:    r.ScheduledAt,
+			CreatedAt:      r.CreatedAt,
+			CompletedAt:    r.CompletedAt,
+		}
+	}
+
+	return results, nil
+}
+
+func (c *console) CleanupResults(ctx context.Context, params CleanupResultsParams) (int64, error) {
+	pgParams := pgqueue.CleanupResultsParams{
+		CompletedBefore: params.CompletedBefore,
+		QueueName:       params.QueueName,
+	}
+
+	count, err := c.queue.CleanupResults(ctx, c.db, pgParams)
+	if err != nil {
+		return 0, errx.Wrap(err)
+	}
+
+	return count, nil
+}
+
+// buildConsoleMeta extracts trace context from the context and returns it as a map.
+func buildConsoleMeta(ctx context.Context) map[string]string {
+	propagator := otel.GetTextMapPropagator()
+	carrier := make(map[string]string)
+	propagator.Inject(ctx, propagation.MapCarrier(carrier))
+	return carrier
+}

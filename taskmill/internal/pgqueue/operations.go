@@ -108,6 +108,11 @@ func (q *queue) Stats(ctx context.Context, db bun.IDB, queueName string) (*Queue
 	return q.getQueueStats(ctx, db, queueName)
 }
 
+// ListQueues returns all distinct queue names.
+func (q *queue) ListQueues(ctx context.Context, db bun.IDB) ([]string, error) {
+	return q.listQueues(ctx, db)
+}
+
 // ListResults queries completed tasks from task_results with optional filters.
 func (q *queue) ListResults(ctx context.Context, db bun.IDB, params ListResultsParams) ([]TaskResult, error) {
 	return q.listTaskResults(ctx, db, params)
@@ -154,9 +159,9 @@ func (q *queue) UpdateScheduleFailure(
 	return q.updateScheduleFailure(ctx, db, id, nextRunAt, errMsg)
 }
 
-// ListSchedules returns all schedules.
-func (q *queue) ListSchedules(ctx context.Context, db bun.IDB) ([]TaskSchedule, error) {
-	return q.listSchedules(ctx, db)
+// ListSchedules returns schedules, optionally filtered by queue name.
+func (q *queue) ListSchedules(ctx context.Context, db bun.IDB, queueName *string) ([]TaskSchedule, error) {
+	return q.listSchedules(ctx, db, queueName)
 }
 
 // GetScheduleByOperationID returns a schedule by its operation ID.

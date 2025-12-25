@@ -222,6 +222,27 @@ func (q *queue) selectTaskByID(ctx context.Context, db bun.IDB, taskID int64) (*
 	return task, nil
 }
 
+// listQueues returns all distinct queue names from both task_queue and task_results.
+func (q *queue) listQueues(ctx context.Context, db bun.IDB) ([]string, error) {
+	query := fmt.Sprintf(`
+		SELECT DISTINCT queue_name
+		FROM (
+			SELECT queue_name FROM %s
+			UNION
+			SELECT queue_name FROM %s
+		) combined
+		ORDER BY queue_name
+	`, q.tableName(), q.resultsTableName())
+
+	var queues []string
+	_, err := db.NewRaw(query).Exec(ctx, &queues)
+	if err != nil {
+		return nil, errx.Wrap(err)
+	}
+
+	return queues, nil
+}
+
 // getQueueStats retrieves statistics for a queue.
 func (q *queue) getQueueStats(ctx context.Context, db bun.IDB, queueName string) (*QueueStats, error) {
 	query := fmt.Sprintf(`
@@ -533,16 +554,28 @@ func (q *queue) updateScheduleFailure(ctx context.Context, db bun.IDB, id int64,
 	return errx.Wrap(err)
 }
 
-// listSchedules returns all schedules.
-func (q *queue) listSchedules(ctx context.Context, db bun.IDB) ([]TaskSchedule, error) {
-	query := fmt.Sprintf(`
-		SELECT *
-		FROM %s
-		ORDER BY next_run_at
-	`, q.schedulesTableName())
-
+// listSchedules returns schedules, optionally filtered by queue name.
+func (q *queue) listSchedules(ctx context.Context, db bun.IDB, queueName *string) ([]TaskSchedule, error) {
 	var schedules []TaskSchedule
-	_, err := db.NewRaw(query).Exec(ctx, &schedules)
+	var err error
+
+	if queueName != nil {
+		query := fmt.Sprintf(`
+			SELECT *
+			FROM %s
+			WHERE queue_name = ?
+			ORDER BY next_run_at
+		`, q.schedulesTableName())
+		_, err = db.NewRaw(query, *queueName).Exec(ctx, &schedules)
+	} else {
+		query := fmt.Sprintf(`
+			SELECT *
+			FROM %s
+			ORDER BY next_run_at
+		`, q.schedulesTableName())
+		_, err = db.NewRaw(query).Exec(ctx, &schedules)
+	}
+
 	if err != nil {
 		return nil, errx.Wrap(err)
 	}
