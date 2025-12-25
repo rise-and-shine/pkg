@@ -53,7 +53,7 @@ func NewWorker(db *bun.DB, queueName string, opts ...WorkerOption) (Worker, erro
 		db:                db,
 		queue:             queue,
 		queueName:         queueName,
-		messageGroupID:    options.messageGroupID,
+		taskGroupID:       options.taskGroupID,
 		concurrency:       options.concurrency,
 		pollInterval:      options.pollInterval,
 		visibilityTimeout: options.visibilityTimeout,
@@ -75,9 +75,9 @@ const (
 type worker struct {
 	db *bun.DB
 
-	queue          pgqueue.Queue
-	queueName      string
-	messageGroupID *string
+	queue       pgqueue.Queue
+	queueName   string
+	taskGroupID *string
 
 	concurrency       int
 	pollInterval      time.Duration
@@ -138,27 +138,27 @@ func (w *worker) workerLoop(ctx context.Context) {
 			return
 
 		default:
-			messages, err := w.dequeueMessages(ctx)
+			tasks, err := w.dequeueTasks(ctx)
 			if err != nil {
-				w.logger.With("error", err).Error("[taskmill]: worker failed to dequeue messages")
+				w.logger.With("error", err).Error("[taskmill]: worker failed to dequeue tasks")
 				time.Sleep(w.pollInterval)
 				continue
 			}
 
-			if len(messages) == 0 {
+			if len(tasks) == 0 {
 				time.Sleep(w.pollInterval)
 				continue
 			}
 
-			for _, msg := range messages {
+			for _, task := range tasks {
 				// ignore error, since it's handled in the process chain
-				_ = chain(ctx, msg)
+				_ = chain(ctx, task)
 			}
 		}
 	}
 }
 
-func (w *worker) dequeueMessages(ctx context.Context) ([]pgqueue.Message, error) {
+func (w *worker) dequeueTasks(ctx context.Context) ([]pgqueue.Task, error) {
 	tx, err := w.db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		return nil, errx.Wrap(err)
@@ -167,12 +167,12 @@ func (w *worker) dequeueMessages(ctx context.Context) ([]pgqueue.Message, error)
 
 	params := pgqueue.DequeueParams{
 		QueueName:         w.queueName,
-		MessageGroupID:    w.messageGroupID,
+		TaskGroupID:       w.taskGroupID,
 		VisibilityTimeout: w.visibilityTimeout,
 		BatchSize:         w.batchSize,
 	}
 
-	messages, err := w.queue.Dequeue(ctx, &tx, params)
+	tasks, err := w.queue.Dequeue(ctx, &tx, params)
 	if err != nil {
 		return nil, errx.Wrap(err)
 	}
@@ -182,24 +182,17 @@ func (w *worker) dequeueMessages(ctx context.Context) ([]pgqueue.Message, error)
 		return nil, errx.Wrap(err)
 	}
 
-	return messages, nil
+	return tasks, nil
 }
 
-type handleFunc func(context.Context, pgqueue.Message) error
+type handleFunc func(context.Context, pgqueue.Task) error
 
-func (w *worker) processMessage(ctx context.Context, message pgqueue.Message) error {
-	operationID, ok := message.Payload["_operation_id"].(string)
-	if !ok {
-		return errx.New("[taskmill]: task message missing _operation_id",
+func (w *worker) processTask(ctx context.Context, queueTask pgqueue.Task) error {
+	operationID := queueTask.OperationID
+	if operationID == "" {
+		return errx.New("[taskmill]: task missing operation_id",
 			errx.WithCode(CodeInvalidPayload),
-			errx.WithDetails(errx.D{"message": message}))
-	}
-
-	taskPayload, ok := message.Payload["payload"]
-	if !ok {
-		return errx.New("[taskmill]: task message missing payload",
-			errx.WithCode(CodeInvalidPayload),
-			errx.WithDetails(errx.D{"message": message}))
+			errx.WithDetails(errx.D{"task": queueTask}))
 	}
 
 	w.mu.RLock()
@@ -212,29 +205,30 @@ func (w *worker) processMessage(ctx context.Context, message pgqueue.Message) er
 			errx.WithDetails(errx.D{"operation_id": operationID}))
 	}
 
-	err := executeWithRecovery(ctx, task, taskPayload)
+	// Pass the payload directly (no envelope)
+	err := executeWithRecovery(ctx, task, queueTask.Payload)
 	if err != nil {
-		nackerr := w.nackMessage(ctx, message, errxToMap(err))
+		nackerr := w.nackTask(ctx, queueTask, errxToMap(err))
 		if nackerr != nil {
 			w.logger.With(
 				"operation_id", operationID,
-				"message_id", message.ID,
-			).Error("[taskmill]: worker failed to nack message: " + nackerr.Error())
+				"task_id", queueTask.ID,
+			).Error("[taskmill]: worker failed to nack task: " + nackerr.Error())
 		}
 	} else {
-		ackerr := w.ackMessage(ctx, message)
+		ackerr := w.ackTask(ctx, queueTask)
 		if ackerr != nil {
 			w.logger.With(
 				"operation_id", operationID,
-				"message_id", message.ID,
-			).Error("[taskmill]: worker failed to ack message: " + ackerr.Error())
+				"task_id", queueTask.ID,
+			).Error("[taskmill]: worker failed to ack task: " + ackerr.Error())
 		}
 	}
 
 	return err
 }
 
-func (w *worker) ackMessage(ctx context.Context, message pgqueue.Message) error {
+func (w *worker) ackTask(ctx context.Context, queueTask pgqueue.Task) error {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), extendedContextTimeout)
 	defer cancel()
 
@@ -244,7 +238,7 @@ func (w *worker) ackMessage(ctx context.Context, message pgqueue.Message) error 
 	}
 	defer tx.Rollback() //nolint:errcheck // rollback is no-op after commit
 
-	err = w.queue.Ack(ctx, &tx, message.ID)
+	err = w.queue.Ack(ctx, &tx, queueTask.ID)
 	if err != nil {
 		return errx.Wrap(err)
 	}
@@ -253,7 +247,7 @@ func (w *worker) ackMessage(ctx context.Context, message pgqueue.Message) error 
 	return errx.Wrap(err)
 }
 
-func (w *worker) nackMessage(ctx context.Context, message pgqueue.Message, reason map[string]any) error {
+func (w *worker) nackTask(ctx context.Context, queueTask pgqueue.Task, reason map[string]any) error {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), extendedContextTimeout)
 	defer cancel()
 
@@ -263,7 +257,7 @@ func (w *worker) nackMessage(ctx context.Context, message pgqueue.Message, reaso
 	}
 	defer tx.Rollback() //nolint:errcheck // rollback is no-op after commit
 
-	err = w.queue.Nack(ctx, &tx, message.ID, reason)
+	err = w.queue.Nack(ctx, &tx, queueTask.ID, reason)
 	if err != nil {
 		return errx.Wrap(err)
 	}
@@ -273,7 +267,7 @@ func (w *worker) nackMessage(ctx context.Context, message pgqueue.Message, reaso
 }
 
 func (w *worker) buildProcessChain() handleFunc {
-	p := w.processMessage
+	p := w.processTask
 
 	// build the chain in reverse order (last wrapper execute first)
 	p = w.processWithLogging(p)       // 6. logging
@@ -287,15 +281,15 @@ func (w *worker) buildProcessChain() handleFunc {
 }
 
 func (w *worker) processWithLogging(next handleFunc) handleFunc {
-	return func(ctx context.Context, m pgqueue.Message) error {
+	return func(ctx context.Context, t pgqueue.Task) error {
 		logger := w.logger.Named("access_logger").WithContext(ctx)
 
 		start := time.Now()
 
-		err := next(ctx, m)
+		err := next(ctx, t)
 
 		logger = logger.With(
-			"message", m,
+			"task", t,
 			"duration", time.Since(start).Round(time.Microsecond),
 		)
 
@@ -310,16 +304,16 @@ func (w *worker) processWithLogging(next handleFunc) handleFunc {
 }
 
 func (w *worker) processWithAlerting(next handleFunc) handleFunc {
-	return func(ctx context.Context, m pgqueue.Message) error {
+	return func(ctx context.Context, t pgqueue.Task) error {
 		logger := w.logger.Named("alerting").WithContext(ctx)
 
-		err := next(ctx, m)
+		err := next(ctx, t)
 		if err == nil {
 			return nil
 		}
 
 		e := errx.AsErrorX(err)
-		operation := fmt.Sprintf("async-task: %s", m.Payload["_operation_id"])
+		operation := fmt.Sprintf("async-task: %s", t.OperationID)
 		details := make(map[string]string)
 		metaCtx := meta.ExtractMetaFromContext(ctx)
 		for k, v := range metaCtx {
@@ -344,43 +338,43 @@ func (w *worker) processWithAlerting(next handleFunc) handleFunc {
 
 // processWithMetaInjection uses global service info from meta.SetServiceInfo().
 func (w *worker) processWithMetaInjection(next handleFunc) handleFunc {
-	return func(ctx context.Context, m pgqueue.Message) error {
+	return func(ctx context.Context, t pgqueue.Task) error {
 		ctx = context.WithValue(ctx, meta.TraceID, getTraceID(ctx))
 		ctx = context.WithValue(ctx, meta.ServiceName, meta.GetServiceName())
 		ctx = context.WithValue(ctx, meta.ServiceVersion, meta.GetServiceVersion())
-		return next(ctx, m)
+		return next(ctx, t)
 	}
 }
 
 func (w *worker) processWithTimeout(next handleFunc) handleFunc {
-	return func(ctx context.Context, m pgqueue.Message) error {
+	return func(ctx context.Context, t pgqueue.Task) error {
 		timeout := w.processTimeout
-		if m.ExpiresAt != nil {
-			timeout = time.Until(*m.ExpiresAt)
+		if t.ExpiresAt != nil {
+			timeout = time.Until(*t.ExpiresAt)
 		}
 		ctx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
-		return next(ctx, m)
+		return next(ctx, t)
 	}
 }
 
 func (w *worker) processWithTracing(next handleFunc) handleFunc {
-	return func(ctx context.Context, m pgqueue.Message) error {
-		// Extract trace context from message payload
-		ctx = extractTraceContext(ctx, m.Payload)
+	return func(ctx context.Context, t pgqueue.Task) error {
+		// Extract trace context from task meta
+		ctx = extractTraceContext(ctx, t.Meta)
 
 		// start a new span
-		ctx, span := otel.Tracer("").Start(ctx, fmt.Sprintf("PROCESS %s", m.Payload["_operation_id"]),
+		ctx, span := otel.Tracer("").Start(ctx, fmt.Sprintf("PROCESS %s", t.OperationID),
 			trace.WithAttributes(
 				semconv.MessagingSystem("pgqueue"),
 				semconv.MessagingOperationProcess,
-				semconv.MessagingMessageID(strconv.FormatInt(m.ID, 10)),
+				semconv.MessagingMessageID(strconv.FormatInt(t.ID, 10)),
 			),
 			trace.WithSpanKind(trace.SpanKindConsumer),
 		)
 
 		// call the next handler
-		err := next(ctx, m)
+		err := next(ctx, t)
 		if err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
@@ -391,49 +385,30 @@ func (w *worker) processWithTracing(next handleFunc) handleFunc {
 	}
 }
 
-// extractTraceContext extracts OpenTelemetry trace context from the message payload.
-// If the trace context is not found or invalid, returns the original context unchanged.
-func extractTraceContext(ctx context.Context, payload map[string]any) context.Context {
-	traceCtxRaw, exists := payload["_trace_ctx"]
-	if !exists {
-		return ctx
-	}
-
-	// The trace context was stored as map[string]string
-	traceCtxMap, exists := traceCtxRaw.(map[string]any)
-	if !exists {
-		return ctx
-	}
-
-	// Convert map[string]any to map[string]string for the propagator
-	carrier := make(map[string]string)
-	for k, v := range traceCtxMap {
-		if str, ok := v.(string); ok {
-			carrier[k] = str
-		}
-	}
-
-	if len(carrier) == 0 {
+// extractTraceContext extracts OpenTelemetry trace context from the task meta.
+// If the meta is nil or empty, returns the original context unchanged.
+func extractTraceContext(ctx context.Context, meta map[string]string) context.Context {
+	if len(meta) == 0 {
 		return ctx
 	}
 
 	propagator := otel.GetTextMapPropagator()
-	return propagator.Extract(ctx, propagation.MapCarrier(carrier))
+	return propagator.Extract(ctx, propagation.MapCarrier(meta))
 }
 
 func (w *worker) processWithRecovery(next handleFunc) handleFunc {
-	return func(ctx context.Context, m pgqueue.Message) (err error) {
+	return func(ctx context.Context, t pgqueue.Task) (err error) {
 		defer func() {
 			if r := recover(); r != nil {
 				w.logger.
 					With(
 						"recover", r,
-						"message", m,
+						"task", t,
 					).
 					Error("[taskmill]: worker panicked at recovery wrapper")
 
 				alertctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), extendedContextTimeout)
-				operationID := fmt.Sprintf("async-task: %s", m.Payload["_operation_id"])
+				operationID := fmt.Sprintf("async-task: %s", t.OperationID)
 
 				go func() {
 					defer cancel()
@@ -446,13 +421,13 @@ func (w *worker) processWithRecovery(next handleFunc) handleFunc {
 					)
 				}()
 
-				// Return error so message gets nacked instead of acked
+				// Return error so task gets nacked instead of acked
 				err = errx.New("[taskmill]: worker panicked at recovery wrapper", errx.WithDetails(errx.D{
 					"panic": fmt.Sprintf("%v", r),
 				}))
 			}
 		}()
-		return next(ctx, m)
+		return next(ctx, t)
 	}
 }
 

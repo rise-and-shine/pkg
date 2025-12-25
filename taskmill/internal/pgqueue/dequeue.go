@@ -8,37 +8,37 @@ import (
 	"github.com/uptrace/bun"
 )
 
-// DequeueParams contains parameters for dequeueing messages.
+// DequeueParams contains parameters for dequeueing tasks.
 type DequeueParams struct {
 	// QueueName identifies the queue (required, non-empty).
 	QueueName string
 
-	// MessageGroupID filters to a specific FIFO group (optional).
+	// TaskGroupID filters to a specific FIFO group (optional).
 	// nil = dequeue from any group.
-	MessageGroupID *string
+	TaskGroupID *string
 
-	// VisibilityTimeout controls how long message remains invisible (required).
+	// VisibilityTimeout controls how long task remains invisible (required).
 	// Must be > 0.
 	VisibilityTimeout time.Duration
 
-	// BatchSize is how many messages to dequeue (required).
+	// BatchSize is how many tasks to dequeue (required).
 	// Range: 1 to 100.
 	BatchSize int
 }
 
-// Dequeue retrieves messages from the queue.
-func (q *queue) Dequeue(ctx context.Context, db bun.IDB, params DequeueParams) ([]Message, error) {
+// Dequeue retrieves tasks from the queue.
+func (q *queue) Dequeue(ctx context.Context, db bun.IDB, params DequeueParams) ([]Task, error) {
 	// Validate parameters
 	err := validateDequeueParams(params)
 	if err != nil {
 		return nil, errx.Wrap(err)
 	}
 
-	// DEADLOCK RISK: Acquire advisory lock for message group FIFO ordering.
+	// DEADLOCK RISK: Acquire advisory lock for task group FIFO ordering.
 	//
-	// Advisory locks are necessary to enforce strict FIFO ordering within message groups.
+	// Advisory locks are necessary to enforce strict FIFO ordering within task groups.
 	// However, if this process crashes while holding the lock, other workers attempting
-	// to dequeue from the same message group will block indefinitely.
+	// to dequeue from the same task group will block indefinitely.
 	//
 	// MITIGATION: Ensure the PostgreSQL connection is configured with timeouts:
 	//   - statement_timeout: Forces lock release if any statement takes too long
@@ -46,20 +46,20 @@ func (q *queue) Dequeue(ctx context.Context, db bun.IDB, params DequeueParams) (
 	//
 	// These timeouts ensure that even if a worker crashes, the lock will be
 	// automatically released within the configured timeout period, preventing deadlocks.
-	if params.MessageGroupID != nil && *params.MessageGroupID != "" {
-		lockID := calculateLockID(params.QueueName, *params.MessageGroupID)
+	if params.TaskGroupID != nil && *params.TaskGroupID != "" {
+		lockID := calculateLockID(params.QueueName, *params.TaskGroupID)
 		_, err = db.ExecContext(ctx, "SELECT pg_advisory_xact_lock(?)", lockID)
 		if err != nil {
 			return nil, errx.Wrap(err)
 		}
 	}
 
-	// Dequeue messages
-	messages, err := q.dequeueMessages(
+	// Dequeue tasks
+	tasks, err := q.dequeueTasks(
 		ctx,
 		db,
 		params.QueueName,
-		params.MessageGroupID,
+		params.TaskGroupID,
 		params.BatchSize,
 		params.VisibilityTimeout,
 	)
@@ -67,35 +67,35 @@ func (q *queue) Dequeue(ctx context.Context, db bun.IDB, params DequeueParams) (
 		return nil, errx.Wrap(err)
 	}
 
-	// Check for each message if it has expired or reached max attempts.
-	// Filter out messages that are moved to DLQ so they're not returned to the caller.
-	validMessages := make([]Message, 0, len(messages))
+	// Check for each task if it has expired or reached max attempts.
+	// Filter out tasks that are moved to DLQ so they're not returned to the caller.
+	validTasks := make([]Task, 0, len(tasks))
 
-	for _, msg := range messages {
-		if msg.ExpiresAt != nil && msg.ExpiresAt.Before(time.Now()) {
-			// Move expired message to DLQ
-			err = q.moveToDLQ(ctx, db, msg.ID, time.Now(), map[string]any{
-				"reason": "message's expires_at timestamp has been reached before it could be processed",
+	for _, task := range tasks {
+		if task.ExpiresAt != nil && task.ExpiresAt.Before(time.Now()) {
+			// Move expired task to DLQ
+			err = q.moveToDLQ(ctx, db, task.ID, time.Now(), map[string]any{
+				"reason": "task's expires_at timestamp has been reached before it could be processed",
 			})
 			if err != nil {
 				return nil, errx.Wrap(err)
 			}
-			continue // Don't include in returned messages
+			continue // Don't include in returned tasks
 		}
 
-		if msg.MaxAttempts > 0 && msg.Attempts >= msg.MaxAttempts {
-			// Move message with max attempts to DLQ
-			err = q.moveToDLQ(ctx, db, msg.ID, time.Now(), map[string]any{
-				"reason": "message's attempt counter has already reached or exceeded max_attempts limit",
+		if task.MaxAttempts > 0 && task.Attempts >= task.MaxAttempts {
+			// Move task with max attempts to DLQ
+			err = q.moveToDLQ(ctx, db, task.ID, time.Now(), map[string]any{
+				"reason": "task's attempt counter has already reached or exceeded max_attempts limit",
 			})
 			if err != nil {
 				return nil, errx.Wrap(err)
 			}
-			continue // Don't include in returned messages
+			continue // Don't include in returned tasks
 		}
 
-		validMessages = append(validMessages, msg)
+		validTasks = append(validTasks, task)
 	}
 
-	return validMessages, nil
+	return validTasks, nil
 }

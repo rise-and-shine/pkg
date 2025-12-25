@@ -11,8 +11,11 @@ import (
 )
 
 const (
-	// tableNameQueueMessages is the name of the main queue messages table.
-	tableNameQueueMessages = "queue_messages"
+	// tableNameTaskQueue is the name of the main task queue table.
+	tableNameTaskQueue = "task_queue"
+
+	// tableNameTaskResults is the name of the task results table.
+	tableNameTaskResults = "task_results"
 
 	// migrationTimeout is the maximum time allowed for the database schema migration.
 	migrationTimeout = time.Second * 10
@@ -20,15 +23,18 @@ const (
 
 // generateSchemaSQL generates the schema SQL with the given schema name.
 func generateSchemaSQL(schema string) string {
-	table := schema + "." + tableNameQueueMessages
+	taskQueueTable := schema + "." + tableNameTaskQueue
+	taskResultsTable := schema + "." + tableNameTaskResults
 
 	var sql strings.Builder
 
 	writeSection(&sql, createSchema(schema))
-	writeSection(&sql, createMessagesTable(table))
-	writeSection(&sql, createIndexes(table))
-	writeSection(&sql, createTriggers(schema, table))
-	writeSection(&sql, createStatsView(schema, table))
+	writeSection(&sql, createTaskTable(taskQueueTable))
+	writeSection(&sql, createTaskResultsTable(taskResultsTable))
+	writeSection(&sql, createIndexes(taskQueueTable))
+	writeSection(&sql, createTaskResultsIndexes(taskResultsTable))
+	writeSection(&sql, createTriggers(schema, taskQueueTable))
+	writeSection(&sql, createStatsView(schema, taskQueueTable))
 
 	return sql.String()
 }
@@ -44,17 +50,19 @@ func createSchema(schema string) string {
 CREATE SCHEMA IF NOT EXISTS %s;`, schema)
 }
 
-func createMessagesTable(table string) string {
+func createTaskTable(table string) string {
 	return fmt.Sprintf(`
--- Main queue messages table
+-- Main task queue table
 CREATE TABLE IF NOT EXISTS %s (
     id BIGSERIAL PRIMARY KEY,
 
     -- Routing
     queue_name VARCHAR(255) NOT NULL,
-    message_group_id VARCHAR(255),
+    task_group_id VARCHAR(255),
+    operation_id VARCHAR(255) NOT NULL,
 
     -- Content
+    meta JSONB,
     payload JSONB NOT NULL,
 
     -- Timing Control
@@ -76,7 +84,40 @@ CREATE TABLE IF NOT EXISTS %s (
 
     -- DLQ
     dlq_at TIMESTAMPTZ,
-    dlq_reason JSONB
+    dlq_reason JSONB,
+
+    -- Ephemeral flag
+    ephemeral BOOLEAN NOT NULL DEFAULT FALSE
+);`, table)
+}
+
+func createTaskResultsTable(table string) string {
+	return fmt.Sprintf(`
+-- Task results table for completed tasks
+CREATE TABLE IF NOT EXISTS %s (
+    id BIGINT PRIMARY KEY,
+
+    -- Routing
+    queue_name VARCHAR(255) NOT NULL,
+    task_group_id VARCHAR(255),
+    operation_id VARCHAR(255) NOT NULL,
+
+    -- Content
+    meta JSONB,
+    payload JSONB NOT NULL,
+
+    -- Processing
+    priority INT NOT NULL,
+    attempts INT NOT NULL,
+    max_attempts INT NOT NULL,
+
+    -- Idempotency
+    idempotency_key VARCHAR(255) NOT NULL,
+
+    -- Timing
+    scheduled_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    completed_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );`, table)
 }
 
@@ -85,37 +126,63 @@ func createIndexes(table string) string {
 -- Critical indexes for performance
 
 -- Dequeue index (hot path) - optimized for the main dequeue query
--- Partial index only on active messages (not in DLQ)
-CREATE INDEX IF NOT EXISTS idx_queue_messages_dequeue
+-- Partial index only on active tasks (not in DLQ)
+CREATE INDEX IF NOT EXISTS idx_task_queue_dequeue
 ON %s (queue_name, priority DESC, visible_at, scheduled_at, id ASC)
 WHERE dlq_at IS NULL;
 
--- Message group index for FIFO ordering
-CREATE INDEX IF NOT EXISTS idx_queue_messages_group
-ON %s (message_group_id, priority DESC, id ASC)
-WHERE message_group_id IS NOT NULL
+-- Task group index for FIFO ordering
+CREATE INDEX IF NOT EXISTS idx_task_queue_group
+ON %s (task_group_id, priority DESC, id ASC)
+WHERE task_group_id IS NOT NULL
   AND dlq_at IS NULL;
 
 -- Idempotency index for duplicate detection (unique constraint)
-CREATE UNIQUE INDEX IF NOT EXISTS idx_queue_messages_idempotency
+CREATE UNIQUE INDEX IF NOT EXISTS idx_task_queue_idempotency
 ON %s (queue_name, idempotency_key)
 WHERE dlq_at IS NULL;
 
--- Scheduled messages index
-CREATE INDEX IF NOT EXISTS idx_queue_messages_scheduled
+-- Scheduled tasks index
+CREATE INDEX IF NOT EXISTS idx_task_queue_scheduled
 ON %s (scheduled_at)
 WHERE dlq_at IS NULL;
 
 -- DLQ index for querying dead letter queue
-CREATE INDEX IF NOT EXISTS idx_queue_messages_dlq
+CREATE INDEX IF NOT EXISTS idx_task_queue_dlq
 ON %s (queue_name, dlq_at DESC)
-WHERE dlq_at IS NOT NULL;`, table, table, table, table, table)
+WHERE dlq_at IS NOT NULL;
+
+-- Operation ID index for filtering by task type
+CREATE INDEX IF NOT EXISTS idx_task_queue_operation
+ON %s (queue_name, operation_id)
+WHERE dlq_at IS NULL;`, table, table, table, table, table, table)
+}
+
+func createTaskResultsIndexes(table string) string {
+	return fmt.Sprintf(`
+-- Indexes for task_results table
+
+-- Index for querying results by queue and completion time
+CREATE INDEX IF NOT EXISTS idx_task_results_queue_completed
+ON %s (queue_name, completed_at DESC);
+
+-- Index for cleanup operations
+CREATE INDEX IF NOT EXISTS idx_task_results_completed
+ON %s (completed_at);
+
+-- Index for querying by idempotency key
+CREATE INDEX IF NOT EXISTS idx_task_results_idempotency
+ON %s (queue_name, idempotency_key);
+
+-- Index for querying by operation ID
+CREATE INDEX IF NOT EXISTS idx_task_results_operation
+ON %s (queue_name, operation_id, completed_at DESC);`, table, table, table, table)
 }
 
 func createTriggers(schema, table string) string {
 	return fmt.Sprintf(`
 -- Update timestamp trigger
-CREATE OR REPLACE FUNCTION %s.update_queue_messages_updated_at()
+CREATE OR REPLACE FUNCTION %s.update_task_queue_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
     NEW.updated_at = CURRENT_TIMESTAMP;
@@ -123,11 +190,11 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-DROP TRIGGER IF EXISTS trigger_queue_messages_updated_at ON %s;
-CREATE TRIGGER trigger_queue_messages_updated_at
+DROP TRIGGER IF EXISTS trigger_task_queue_updated_at ON %s;
+CREATE TRIGGER trigger_task_queue_updated_at
     BEFORE UPDATE ON %s
     FOR EACH ROW
-    EXECUTE FUNCTION %s.update_queue_messages_updated_at();`, schema, table, table, schema)
+    EXECUTE FUNCTION %s.update_task_queue_updated_at();`, schema, table, table, schema)
 }
 
 func createStatsView(schema, table string) string {
@@ -145,7 +212,7 @@ SELECT
     COUNT(*) FILTER (WHERE scheduled_at > CURRENT_TIMESTAMP
                      AND dlq_at IS NULL) as scheduled,
     COUNT(*) FILTER (WHERE dlq_at IS NOT NULL) as in_dlq,
-    MIN(created_at) FILTER (WHERE dlq_at IS NULL) as oldest_message,
+    MIN(created_at) FILTER (WHERE dlq_at IS NULL) as oldest_task,
     AVG(attempts) FILTER (WHERE dlq_at IS NULL) as avg_attempts,
     PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY attempts) FILTER (WHERE dlq_at IS NULL) as p95_attempts
 FROM %s

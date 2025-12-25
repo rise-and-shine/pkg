@@ -21,7 +21,7 @@ func defaultEnqueueOptions() *enqueueOptions {
 		maxAttempts:    3,
 		scheduledAt:    time.Now(),
 		expiresAt:      nil,
-		messageGroupID: nil,
+		taskGroupID:    nil,
 		idempotencyKey: uuid.NewString(),
 	}
 }
@@ -39,6 +39,6 @@ func defaultWorkerOptions() workerOptions {
 		visibilityTimeout: 1 * time.Minute,
 		batchSize:         1,
 		processTimeout:    30 * time.Second,
-		messageGroupID:    nil,
+		taskGroupID:       nil,
 	}
 }

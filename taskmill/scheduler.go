@@ -249,7 +249,7 @@ func (s *scheduler) scheduleTask(st scheduleTrack) error {
 		struct{}{},
 		st.schedule.EnqueueOptions...,
 	)
-	if errx.IsCodeIn(err, pgqueue.CodeDuplicateMessage) {
+	if errx.IsCodeIn(err, pgqueue.CodeDuplicateTask) {
 		s.mu.Lock()
 		if current, ok := s.schedulesMap[st.schedule.OperationID]; ok {
 			current.lastRun = st.nextRun

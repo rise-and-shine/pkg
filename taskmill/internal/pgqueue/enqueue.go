@@ -2,70 +2,116 @@ package pgqueue
 
 import (
 	"context"
+	"time"
 
 	"github.com/code19m/errx"
 	"github.com/uptrace/bun"
 )
 
 const (
-	CodeDuplicateMessage = "DUPLICATE_MESSAGE"
+	CodeDuplicateTask = "DUPLICATE_TASK"
 )
 
-// EnqueueBatch adds multiple messages to the queue.
-// All messages in the batch will be enqueued to the same queue.
-// Returns a list of message IDs for the enqueued messages.
-// If any message has a duplicate idempotency key, the entire batch fails with CodeDuplicateMessage.
+// EnqueueBatch adds multiple tasks to the queue.
+// All tasks in the batch will be enqueued to the same queue.
+// Returns a list of task IDs for the enqueued tasks.
+// If any task has a duplicate idempotency key, the entire batch fails with CodeDuplicateTask.
 func (q *queue) EnqueueBatch(
 	ctx context.Context,
 	db bun.IDB,
 	queueName string,
-	messages []SingleMessage,
+	tasks []TaskParams,
 ) ([]int64, error) {
 	// Validate queue name
 	if queueName == "" {
 		return nil, errx.New("[pgqueue]: queue name is required")
 	}
 
-	if len(messages) == 0 {
+	if len(tasks) == 0 {
 		return []int64{}, nil
 	}
 
-	// Validate all messages first
-	for _, msg := range messages {
-		err := validateSingleMsg(msg)
+	// Validate all tasks first
+	for _, task := range tasks {
+		err := validateSingleTask(task)
 		if err != nil {
-			return nil, errx.Wrap(err, errx.WithDetails(errx.D{"message": msg}))
+			return nil, errx.Wrap(err, errx.WithDetails(errx.D{"task": task}))
 		}
 	}
 
-	// Convert SingleMessage to Message structs
-	dbMessages := make([]Message, 0, len(messages))
-	for _, singleMsg := range messages {
+	// Convert SingleTask to Task structs
+	dbTasks := make([]Task, 0, len(tasks))
+	for _, singleTask := range tasks {
 		// Normalize payload
-		payload := singleMsg.Payload
+		payload := singleTask.Payload
 		if payload == nil {
 			payload = map[string]any{}
 		}
 
-		dbMessages = append(dbMessages, Message{
+		dbTasks = append(dbTasks, Task{
 			QueueName:      queueName,
-			MessageGroupID: singleMsg.MessageGroupID,
+			TaskGroupID:    singleTask.TaskGroupID,
+			OperationID:    singleTask.OperationID,
+			Meta:           singleTask.Meta,
 			Payload:        payload,
-			ScheduledAt:    singleMsg.ScheduledAt,
-			VisibleAt:      singleMsg.ScheduledAt, // Initially visible at scheduled time
-			Priority:       singleMsg.Priority,
-			MaxAttempts:    singleMsg.MaxAttempts,
-			ExpiresAt:      singleMsg.ExpiresAt,
-			IdempotencyKey: singleMsg.IdempotencyKey,
+			ScheduledAt:    singleTask.ScheduledAt,
+			VisibleAt:      singleTask.ScheduledAt, // Initially visible at scheduled time
+			Priority:       singleTask.Priority,
+			MaxAttempts:    singleTask.MaxAttempts,
+			ExpiresAt:      singleTask.ExpiresAt,
+			IdempotencyKey: singleTask.IdempotencyKey,
 			Attempts:       0,
+			Ephemeral:      singleTask.Ephemeral,
 		})
 	}
 
-	// Insert all messages in a single batch
-	ids, err := q.insertMessages(ctx, db, dbMessages)
+	// Insert all tasks in a single batch
+	ids, err := q.insertTasks(ctx, db, dbTasks)
 	if err != nil {
 		return nil, errx.Wrap(err)
 	}
 
 	return ids, nil
+}
+
+// TaskParams represents a parameters of a task to be enqueued.
+type TaskParams struct {
+	// OperationID identifies which handler should process this task (required).
+	OperationID string
+
+	// Meta contains trace context and other metadata (optional).
+	Meta map[string]string
+
+	// Payload contains the business data (optional, can be empty map).
+	Payload map[string]any
+
+	// IdempotencyKey prevents duplicate tasks (required, non-empty).
+	IdempotencyKey string
+
+	// TaskGroupID enables FIFO ordering within a group (optional).
+	// Tasks with same group ID are processed sequentially.
+	// nil = standard (non-FIFO) queue.
+	TaskGroupID *string
+
+	// Priority determines processing order (required).
+	// Range: -100 (lowest) to 100 (highest), 0 = normal.
+	Priority int
+
+	// ScheduledAt is when the task becomes available (required).
+	// Use time.Now() for immediate availability.
+	ScheduledAt time.Time
+
+	// MaxAttempts is the retry limit before moving to DLQ (required).
+	// Must be >= 1.
+	MaxAttempts int
+
+	// ExpiresAt is the expiration time (optional).
+	// If set, task moves to DLQ after this time.
+	// nil = never expires.
+	ExpiresAt *time.Time
+
+	// Ephemeral indicates whether the task result should be discarded on completion.
+	// If true, the task will not be saved to task_results on Ack.
+	// Default is false (results are saved).
+	Ephemeral bool
 }

@@ -14,8 +14,9 @@ type enqueueOptions struct {
 	maxAttempts    int
 	scheduledAt    time.Time
 	expiresAt      *time.Time
-	messageGroupID *string
+	taskGroupID    *string
 	idempotencyKey string
+	ephemeral      bool
 }
 
 // WithPriority specifies the task priority (-100 to 100).
@@ -50,11 +51,11 @@ func WithExpiresAt(expiresAt time.Time) EnqueueOption {
 	}
 }
 
-// WithMessageGroupID specifies the FIFO group ID.
+// WithTaskGroupID specifies the FIFO group ID.
 // Default is nil.
-func WithMessageGroupID(groupID string) EnqueueOption {
+func WithTaskGroupID(groupID string) EnqueueOption {
 	return func(opts *enqueueOptions) {
-		opts.messageGroupID = &groupID
+		opts.taskGroupID = &groupID
 	}
 }
 
@@ -64,6 +65,15 @@ func WithMessageGroupID(groupID string) EnqueueOption {
 func WithIdempotencyKey(key string) EnqueueOption {
 	return func(opts *enqueueOptions) {
 		opts.idempotencyKey = key
+	}
+}
+
+// WithEphemeral marks the task as ephemeral.
+// Ephemeral tasks will not be saved to task_results on completion.
+// Default is false (results are saved).
+func WithEphemeral() EnqueueOption {
+	return func(opts *enqueueOptions) {
+		opts.ephemeral = true
 	}
 }
 

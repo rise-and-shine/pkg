@@ -2,18 +2,18 @@ package pgqueue
 
 import "github.com/code19m/errx"
 
-// validateSingleMsg validates a SingleMessage.
-func validateSingleMsg(msg SingleMessage) error {
-	if msg.IdempotencyKey == "" {
+// validateSingleTask validates a SingleTask.
+func validateSingleTask(task TaskParams) error {
+	if task.IdempotencyKey == "" {
 		return errx.New("[pgqueue]: idempotency key is required")
 	}
-	if msg.Priority < -100 || msg.Priority > 100 {
+	if task.Priority < -100 || task.Priority > 100 {
 		return errx.New("[pgqueue]: priority must be between -100 and 100")
 	}
-	if msg.MaxAttempts < 1 {
+	if task.MaxAttempts < 1 {
 		return errx.New("[pgqueue]: max attempts must be >= 1")
 	}
-	if msg.ExpiresAt != nil && msg.ExpiresAt.Before(msg.ScheduledAt) {
+	if task.ExpiresAt != nil && task.ExpiresAt.Before(task.ScheduledAt) {
 		return errx.New("[pgqueue]: expires at must be after scheduled at")
 	}
 	return nil
@@ -32,8 +32,8 @@ func validateDequeueParams(params DequeueParams) error {
 	return nil
 }
 
-// calculateLockID generates a lock ID for message group advisory locking.
-func calculateLockID(queueName, messageGroupID string) uint64 {
+// calculateLockID generates a lock ID for task group advisory locking.
+func calculateLockID(queueName, taskGroupID string) uint64 {
 	// Simple hash function using FNV-1a algorithm
 	const (
 		offset64 = 14695981039346656037
@@ -41,7 +41,7 @@ func calculateLockID(queueName, messageGroupID string) uint64 {
 	)
 
 	hash := uint64(offset64)
-	data := queueName + ":" + messageGroupID
+	data := queueName + ":" + taskGroupID
 
 	for i := range len(data) {
 		hash ^= uint64(data[i])
@@ -51,11 +51,11 @@ func calculateLockID(queueName, messageGroupID string) uint64 {
 	return hash
 }
 
-// messageGroupIDToAny converts *string to any for SQL queries.
+// taskGroupIDToAny converts *string to any for SQL queries.
 // This eliminates duplicate null handling code across query functions.
-func messageGroupIDToAny(messageGroupID *string) any {
-	if messageGroupID != nil {
-		return *messageGroupID
+func taskGroupIDToAny(taskGroupID *string) any {
+	if taskGroupID != nil {
+		return *taskGroupID
 	}
 	return nil
 }

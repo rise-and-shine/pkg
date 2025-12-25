@@ -15,7 +15,7 @@ import (
 // and should be called either by the scheduler or via use cases.
 type Enqueuer interface {
 	// Enqueue enqueues a task for execution.
-	// Returns the ID of the enqueued message from pgqueue.
+	// Returns the ID of the enqueued task from pgqueue.
 	Enqueue(ctx context.Context, db bun.IDB, operationID string, payload any, opts ...EnqueueOption) (int64, error)
 
 	// TODO: implement EnqueueBatch
@@ -51,46 +51,61 @@ func (e *enqueuer) Enqueue(
 		opt(options)
 	}
 
-	singleMessage := pgqueue.SingleMessage{
-		Payload:        buildPayload(ctx, operationID, payload),
+	// Build meta with trace context
+	meta := buildMeta(ctx)
+
+	// Normalize payload to map[string]any
+	normalizedPayload := normalizePayload(payload)
+
+	singleTask := pgqueue.TaskParams{
+		OperationID:    operationID,
+		Meta:           meta,
+		Payload:        normalizedPayload,
 		IdempotencyKey: options.idempotencyKey,
-		MessageGroupID: options.messageGroupID,
+		TaskGroupID:    options.taskGroupID,
 		Priority:       options.priority,
 		ScheduledAt:    options.scheduledAt,
 		MaxAttempts:    options.maxAttempts,
 		ExpiresAt:      options.expiresAt,
+		Ephemeral:      options.ephemeral,
 	}
 
-	msgIDs, err := e.queue.EnqueueBatch(ctx, db, e.queueName, []pgqueue.SingleMessage{singleMessage})
+	taskIDs, err := e.queue.EnqueueBatch(ctx, db, e.queueName, []pgqueue.TaskParams{singleTask})
 	if err != nil {
 		return 0, errx.Wrap(err)
 	}
 
-	if len(msgIDs) != 1 {
-		return 0, errx.New("[taskmill]: got unexpected number of message IDs", errx.WithDetails(errx.D{
+	if len(taskIDs) != 1 {
+		return 0, errx.New("[taskmill]: got unexpected number of task IDs", errx.WithDetails(errx.D{
 			"expected": 1,
-			"got":      len(msgIDs),
-			"payload":  singleMessage,
+			"got":      len(taskIDs),
+			"payload":  singleTask,
 		}))
 	}
 
-	return msgIDs[0], nil
+	return taskIDs[0], nil
 }
 
-func buildPayload(ctx context.Context, operationID string, payload any) map[string]any {
+// buildMeta extracts trace context from the context and returns it as a map.
+func buildMeta(ctx context.Context) map[string]string {
 	propagator := otel.GetTextMapPropagator()
 	carrier := make(map[string]string)
 	propagator.Inject(ctx, propagation.MapCarrier(carrier))
+	return carrier
+}
 
-	msg := make(map[string]any)
-	msg["_operation_id"] = operationID
-	msg["_trace_ctx"] = carrier
-
+// normalizePayload converts the payload to map[string]any.
+// If payload is nil, returns an empty map.
+// If payload is already map[string]any, returns it directly.
+// Otherwise, wraps it in a map with "data" key.
+func normalizePayload(payload any) map[string]any {
 	if payload == nil {
-		msg["payload"] = struct{}{}
-	} else {
-		msg["payload"] = payload
+		return map[string]any{}
 	}
 
-	return msg
+	if m, ok := payload.(map[string]any); ok {
+		return m
+	}
+
+	return map[string]any{"data": payload}
 }

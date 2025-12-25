@@ -12,44 +12,54 @@ import (
 )
 
 const (
-	idempotencyKeyUniqueConstraint = "idx_queue_messages_idempotency"
+	idempotencyKeyUniqueConstraint = "idx_task_queue_idempotency"
 )
 
-// tableName returns the fully qualified table name (schema.table).
+// tableName returns the fully qualified table name (schema.task_queue).
 func (q *queue) tableName() string {
-	return fmt.Sprintf("%s.%s", q.schema, tableNameQueueMessages)
+	return fmt.Sprintf("%s.%s", q.schema, tableNameTaskQueue)
 }
 
-// insertMessages inserts multiple messages in a single batch and returns their IDs.
-func (q *queue) insertMessages(ctx context.Context, db bun.IDB, messages []Message) ([]int64, error) {
-	if len(messages) == 0 {
+// resultsTableName returns the fully qualified task_results table name.
+func (q *queue) resultsTableName() string {
+	return fmt.Sprintf("%s.%s", q.schema, tableNameTaskResults)
+}
+
+// insertTasks inserts multiple tasks in a single batch and returns their IDs.
+func (q *queue) insertTasks(ctx context.Context, db bun.IDB, tasks []Task) ([]int64, error) {
+	if len(tasks) == 0 {
 		return []int64{}, nil
 	}
 
 	// Build the VALUES clause with placeholders
 	var args []any
-	valuesPlaceholders := make([]string, 0, len(messages))
+	valuesPlaceholders := make([]string, 0, len(tasks))
 
-	for _, msg := range messages {
-		valuesPlaceholders = append(valuesPlaceholders, "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+	for _, task := range tasks {
+		valuesPlaceholders = append(valuesPlaceholders, "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
 		args = append(args,
-			msg.QueueName,
-			msg.MessageGroupID,
-			msg.Payload,
-			msg.ScheduledAt,
-			msg.VisibleAt,
-			msg.ExpiresAt,
-			msg.Priority,
-			msg.MaxAttempts,
-			msg.IdempotencyKey,
-			msg.Attempts,
+			task.QueueName,
+			task.TaskGroupID,
+			task.OperationID,
+			task.Meta,
+			task.Payload,
+			task.ScheduledAt,
+			task.VisibleAt,
+			task.ExpiresAt,
+			task.Priority,
+			task.MaxAttempts,
+			task.IdempotencyKey,
+			task.Attempts,
+			task.Ephemeral,
 		)
 	}
 
 	query := fmt.Sprintf(`
 		INSERT INTO %s (
 			queue_name,
-			message_group_id,
+			task_group_id,
+			operation_id,
+			meta,
 			payload,
 			scheduled_at,
 			visible_at,
@@ -57,7 +67,8 @@ func (q *queue) insertMessages(ctx context.Context, db bun.IDB, messages []Messa
 			priority,
 			max_attempts,
 			idempotency_key,
-			attempts
+			attempts,
+			ephemeral
 		) VALUES %s
 		RETURNING id
 	`, q.tableName(), strings.Join(valuesPlaceholders, ", "))
@@ -65,7 +76,7 @@ func (q *queue) insertMessages(ctx context.Context, db bun.IDB, messages []Messa
 	var ids []int64
 	err := db.NewRaw(query, args...).Scan(ctx, &ids)
 	if pg.ConstraintName(err) == idempotencyKeyUniqueConstraint {
-		return nil, errx.Wrap(err, errx.WithCode(CodeDuplicateMessage))
+		return nil, errx.Wrap(err, errx.WithCode(CodeDuplicateTask))
 	}
 	if err != nil {
 		return nil, errx.Wrap(err)
@@ -74,17 +85,17 @@ func (q *queue) insertMessages(ctx context.Context, db bun.IDB, messages []Messa
 	return ids, nil
 }
 
-// dequeueMessages retrieves and locks messages from the queue.
-func (q *queue) dequeueMessages(
+// dequeueTasks retrieves and locks tasks from the queue.
+func (q *queue) dequeueTasks(
 	ctx context.Context,
 	db bun.IDB,
 	queueName string,
-	messageGroupID *string,
+	taskGroupID *string,
 	batchSize int,
 	visibilityTimeout time.Duration,
-) ([]Message, error) {
+) ([]Task, error) {
 	var (
-		messages []Message
+		tasks []Task
 	)
 
 	query := fmt.Sprintf(`
@@ -95,37 +106,37 @@ func (q *queue) dequeueMessages(
 			  AND visible_at <= NOW()
 			  AND scheduled_at <= NOW()
 			  AND dlq_at IS NULL
-			  AND (? IS NULL OR message_group_id = ?)
+			  AND (? IS NULL OR task_group_id = ?)
 			ORDER BY priority DESC, id ASC
 			LIMIT ?
 			FOR UPDATE SKIP LOCKED
 		)
-		UPDATE %s m
+		UPDATE %s t
 		SET
 			visible_at = NOW() + INTERVAL '1 second' * ?,
 			attempts = attempts + 1,
 			updated_at = NOW()
 		FROM selected s
-		WHERE m.id = s.id
-		RETURNING m.*
+		WHERE t.id = s.id
+		RETURNING t.*
 	`, q.tableName(), q.tableName())
 
 	_, err := db.NewRaw(query,
 		queueName,
-		messageGroupID,
-		messageGroupIDToAny(messageGroupID),
+		taskGroupID,
+		taskGroupIDToAny(taskGroupID),
 		batchSize,
 		int(visibilityTimeout.Seconds()),
-	).Exec(ctx, &messages)
+	).Exec(ctx, &tasks)
 
-	return messages, errx.Wrap(err)
+	return tasks, errx.Wrap(err)
 }
 
-// moveToDLQ moves a message to the DLQ.
+// moveToDLQ moves a task to the DLQ.
 func (q *queue) moveToDLQ(
 	ctx context.Context,
 	db bun.IDB,
-	messageID int64,
+	taskID int64,
 	dlqAt time.Time,
 	dlqReason map[string]any,
 ) error {
@@ -138,18 +149,18 @@ func (q *queue) moveToDLQ(
 		WHERE id = ?
 	`, q.tableName())
 
-	_, err := db.ExecContext(ctx, query, dlqAt, dlqReason, messageID)
+	_, err := db.ExecContext(ctx, query, dlqAt, dlqReason, taskID)
 	return errx.Wrap(err)
 }
 
-// deleteMessage deletes a message by ID.
-func (q *queue) deleteMessage(ctx context.Context, db bun.IDB, messageID int64) (int64, error) {
+// deleteTask deletes a task by ID.
+func (q *queue) deleteTask(ctx context.Context, db bun.IDB, taskID int64) (int64, error) {
 	query := fmt.Sprintf(`
 		DELETE FROM %s
 		WHERE id = ?
 	`, q.tableName())
 
-	result, err := db.ExecContext(ctx, query, messageID)
+	result, err := db.ExecContext(ctx, query, taskID)
 	if err != nil {
 		return 0, errx.Wrap(err)
 	}
@@ -162,11 +173,11 @@ func (q *queue) deleteMessage(ctx context.Context, db bun.IDB, messageID int64) 
 	return rowsAffected, nil
 }
 
-// updateMessageVisibility updates the visibility timeout of a message.
-func (q *queue) updateMessageVisibility(
+// updateTaskVisibility updates the visibility timeout of a task.
+func (q *queue) updateTaskVisibility(
 	ctx context.Context,
 	db bun.IDB,
-	messageID int64,
+	taskID int64,
 	visibleAt time.Time,
 ) (int64, error) {
 	query := fmt.Sprintf(`
@@ -176,7 +187,7 @@ func (q *queue) updateMessageVisibility(
 		WHERE id = ?
 	`, q.tableName())
 
-	result, err := db.ExecContext(ctx, query, visibleAt, messageID)
+	result, err := db.ExecContext(ctx, query, visibleAt, taskID)
 	if err != nil {
 		return 0, errx.Wrap(err)
 	}
@@ -189,21 +200,21 @@ func (q *queue) updateMessageVisibility(
 	return rowsAffected, nil
 }
 
-// selectMessageByID retrieves a message by its ID.
-func (q *queue) selectMessageByID(ctx context.Context, db bun.IDB, messageID int64) (*Message, error) {
+// selectTaskByID retrieves a task by its ID.
+func (q *queue) selectTaskByID(ctx context.Context, db bun.IDB, taskID int64) (*Task, error) {
 	query := fmt.Sprintf(`
 		SELECT *
 		FROM %s
 		WHERE id = ?
 	`, q.tableName())
 
-	msg := new(Message)
-	err := db.NewRaw(query, messageID).Scan(ctx, msg)
+	task := new(Task)
+	err := db.NewRaw(query, taskID).Scan(ctx, task)
 	if err != nil {
 		return nil, errx.Wrap(err)
 	}
 
-	return msg, nil
+	return task, nil
 }
 
 // getQueueStats retrieves statistics for a queue.
@@ -220,7 +231,7 @@ func (q *queue) getQueueStats(ctx context.Context, db bun.IDB, queueName string)
 			COUNT(*) FILTER (WHERE scheduled_at > NOW()
 							 AND dlq_at IS NULL) as scheduled,
 			COUNT(*) FILTER (WHERE dlq_at IS NOT NULL) as in_dlq,
-			MIN(created_at) FILTER (WHERE dlq_at IS NULL) as oldest_message,
+			MIN(created_at) FILTER (WHERE dlq_at IS NULL) as oldest_task,
 			AVG(attempts) FILTER (WHERE dlq_at IS NULL) as avg_attempts,
 			PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY attempts) FILTER (WHERE dlq_at IS NULL) as p95_attempts
 		FROM %s
@@ -232,8 +243,8 @@ func (q *queue) getQueueStats(ctx context.Context, db bun.IDB, queueName string)
 	return stats, errx.Wrap(err)
 }
 
-// deleteQueueMessages deletes all non-DLQ messages from a queue.
-func (q *queue) deleteQueueMessages(ctx context.Context, db bun.IDB, queueName string) error {
+// deleteQueueTasks deletes all non-DLQ tasks from a queue.
+func (q *queue) deleteQueueTasks(ctx context.Context, db bun.IDB, queueName string) error {
 	query := fmt.Sprintf(`
 		DELETE FROM %s
 		WHERE queue_name = ?
@@ -244,8 +255,8 @@ func (q *queue) deleteQueueMessages(ctx context.Context, db bun.IDB, queueName s
 	return errx.Wrap(err)
 }
 
-// deleteDLQMessages deletes all DLQ messages from a queue.
-func (q *queue) deleteDLQMessages(ctx context.Context, db bun.IDB, queueName string) error {
+// deleteDLQTasks deletes all DLQ tasks from a queue.
+func (q *queue) deleteDLQTasks(ctx context.Context, db bun.IDB, queueName string) error {
 	query := fmt.Sprintf(`
 		DELETE FROM %s
 		WHERE queue_name = ?
@@ -256,8 +267,8 @@ func (q *queue) deleteDLQMessages(ctx context.Context, db bun.IDB, queueName str
 	return errx.Wrap(err)
 }
 
-// requeueFromDLQ moves a message from DLQ back to the queue.
-func (q *queue) requeueFromDLQ(ctx context.Context, db bun.IDB, messageID int64) error {
+// requeueTaskFromDLQ moves a task from DLQ back to the queue.
+func (q *queue) requeueTaskFromDLQ(ctx context.Context, db bun.IDB, taskID int64) error {
 	query := fmt.Sprintf(`
 		UPDATE %s
 		SET
@@ -270,6 +281,136 @@ func (q *queue) requeueFromDLQ(ctx context.Context, db bun.IDB, messageID int64)
 		WHERE id = ?
 	`, q.tableName())
 
-	_, err := db.ExecContext(ctx, query, messageID)
+	_, err := db.ExecContext(ctx, query, taskID)
 	return errx.Wrap(err)
+}
+
+// insertTaskResult inserts a completed task into task_results.
+func (q *queue) insertTaskResult(ctx context.Context, db bun.IDB, task *Task, completedAt time.Time) error {
+	query := fmt.Sprintf(`
+		INSERT INTO %s (
+			id,
+			queue_name,
+			task_group_id,
+			operation_id,
+			meta,
+			payload,
+			priority,
+			attempts,
+			max_attempts,
+			idempotency_key,
+			scheduled_at,
+			created_at,
+			completed_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, q.resultsTableName())
+
+	_, err := db.ExecContext(ctx, query,
+		task.ID,
+		task.QueueName,
+		task.TaskGroupID,
+		task.OperationID,
+		task.Meta,
+		task.Payload,
+		task.Priority,
+		task.Attempts,
+		task.MaxAttempts,
+		task.IdempotencyKey,
+		task.ScheduledAt,
+		task.CreatedAt,
+		completedAt,
+	)
+	return errx.Wrap(err)
+}
+
+// listTaskResults queries task_results with optional filters.
+func (q *queue) listTaskResults(ctx context.Context, db bun.IDB, params ListResultsParams) ([]TaskResult, error) {
+	// Apply defaults
+	limit := params.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
+
+	// Build query with optional filters
+	var conditions []string
+	var args []any
+
+	if params.QueueName != nil {
+		conditions = append(conditions, "queue_name = ?")
+		args = append(args, *params.QueueName)
+	}
+
+	if params.TaskGroupID != nil {
+		conditions = append(conditions, "task_group_id = ?")
+		args = append(args, *params.TaskGroupID)
+	}
+
+	if params.CompletedAfter != nil {
+		conditions = append(conditions, "completed_at >= ?")
+		args = append(args, *params.CompletedAfter)
+	}
+
+	if params.CompletedBefore != nil {
+		conditions = append(conditions, "completed_at < ?")
+		args = append(args, *params.CompletedBefore)
+	}
+
+	whereClause := ""
+	if len(conditions) > 0 {
+		whereClause = "WHERE " + strings.Join(conditions, " AND ")
+	}
+
+	query := fmt.Sprintf(`
+		SELECT *
+		FROM %s
+		%s
+		ORDER BY completed_at DESC
+		LIMIT ?
+		OFFSET ?
+	`, q.resultsTableName(), whereClause)
+
+	args = append(args, limit, params.Offset)
+
+	var results []TaskResult
+	_, err := db.NewRaw(query, args...).Exec(ctx, &results)
+	if err != nil {
+		return nil, errx.Wrap(err)
+	}
+
+	return results, nil
+}
+
+// cleanupTaskResults deletes old task results.
+func (q *queue) cleanupTaskResults(ctx context.Context, db bun.IDB, params CleanupResultsParams) (int64, error) {
+	var conditions []string
+	var args []any
+
+	// CompletedBefore is required
+	conditions = append(conditions, "completed_at < ?")
+	args = append(args, params.CompletedBefore)
+
+	if params.QueueName != nil {
+		conditions = append(conditions, "queue_name = ?")
+		args = append(args, *params.QueueName)
+	}
+
+	query := fmt.Sprintf(`
+		DELETE FROM %s
+		WHERE %s
+	`, q.resultsTableName(), strings.Join(conditions, " AND "))
+
+	result, err := db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, errx.Wrap(err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return 0, errx.Wrap(err)
+	}
+
+	return rowsAffected, nil
 }

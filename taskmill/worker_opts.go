@@ -11,7 +11,7 @@ type workerOptions struct {
 	visibilityTimeout time.Duration
 	batchSize         int
 	processTimeout    time.Duration
-	messageGroupID    *string
+	taskGroupID       *string
 }
 
 // WithConcurrency sets the concurrency level for the worker.
@@ -54,10 +54,10 @@ func WithProcessTimeout(processTimeout time.Duration) WorkerOption {
 	}
 }
 
-// WithMsgGroupID sets the message group ID for the worker to ensure FIFO ordering.
+// WithTaskGroup sets the task group ID for the worker to ensure FIFO ordering.
 // Default: nil.
-func WithMsgGroupID(messageGroupID *string) WorkerOption {
+func WithTaskGroup(taskGroupID *string) WorkerOption {
 	return func(o *workerOptions) {
-		o.messageGroupID = messageGroupID
+		o.taskGroupID = taskGroupID
 	}
 }
