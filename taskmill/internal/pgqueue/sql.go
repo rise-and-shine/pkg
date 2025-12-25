@@ -513,7 +513,7 @@ func (q *queue) claimDueSchedule(ctx context.Context, db bun.IDB) (*TaskSchedule
 	err := db.NewRaw(query).Scan(ctx, schedule)
 	if err != nil {
 		if err.Error() == "sql: no rows in result set" {
-			return nil, nil
+			return nil, nil //nolint:nilnil // Intentionally returning nil,nil as function name indicates
 		}
 		return nil, errx.Wrap(err)
 	}
@@ -539,7 +539,13 @@ func (q *queue) updateScheduleSuccess(ctx context.Context, db bun.IDB, id int64,
 }
 
 // updateScheduleFailure updates a schedule after failed execution.
-func (q *queue) updateScheduleFailure(ctx context.Context, db bun.IDB, id int64, nextRunAt time.Time, errMsg string) error {
+func (q *queue) updateScheduleFailure(
+	ctx context.Context,
+	db bun.IDB,
+	id int64,
+	nextRunAt time.Time,
+	errMsg string,
+) error {
 	query := fmt.Sprintf(`
 		UPDATE %s
 		SET next_run_at = ?,

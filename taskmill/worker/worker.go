@@ -1,4 +1,4 @@
-package taskmill
+package worker
 
 import (
 	"context"
@@ -14,6 +14,7 @@ import (
 	"github.com/rise-and-shine/pkg/meta"
 	"github.com/rise-and-shine/pkg/observability/alert"
 	"github.com/rise-and-shine/pkg/observability/logger"
+	"github.com/rise-and-shine/pkg/taskmill/internal/config"
 	"github.com/rise-and-shine/pkg/taskmill/internal/pgqueue"
 	"github.com/rise-and-shine/pkg/ucdef"
 	"github.com/uptrace/bun"
@@ -22,6 +23,15 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
 	"go.opentelemetry.io/otel/trace"
+)
+
+// Error codes for worker operations.
+const (
+	// CodeTaskNotRegistered is returned when trying to process a task that hasn't been registered.
+	CodeTaskNotRegistered = "TASK_NOT_REGISTERED"
+
+	// CodeInvalidPayload is returned when the task payload is invalid or malformed.
+	CodeInvalidPayload = "INVALID_PAYLOAD"
 )
 
 type Worker interface {
@@ -37,14 +47,14 @@ type Worker interface {
 	Stop() error
 }
 
-// NewWorker creates a new Worker instance.
-func NewWorker(db *bun.DB, queueName string, opts ...WorkerOption) (Worker, error) {
-	options := defaultWorkerOptions()
+// New creates a new Worker instance.
+func New(db *bun.DB, queueName string, opts ...Option) (Worker, error) {
+	o := defaultOptions()
 	for _, opt := range opts {
-		opt(&options)
+		opt(&o)
 	}
 
-	queue, err := pgqueue.NewQueue(getSchemaName(), getRetryStrategy())
+	queue, err := pgqueue.NewQueue(config.SchemaName(), config.RetryStrategy())
 	if err != nil {
 		return nil, errx.Wrap(err)
 	}
@@ -53,12 +63,12 @@ func NewWorker(db *bun.DB, queueName string, opts ...WorkerOption) (Worker, erro
 		db:                db,
 		queue:             queue,
 		queueName:         queueName,
-		taskGroupID:       options.taskGroupID,
-		concurrency:       options.concurrency,
-		pollInterval:      options.pollInterval,
-		visibilityTimeout: options.visibilityTimeout,
-		batchSize:         options.batchSize,
-		processTimeout:    options.processTimeout,
+		taskGroupID:       o.taskGroupID,
+		concurrency:       o.concurrency,
+		pollInterval:      o.pollInterval,
+		visibilityTimeout: o.visibilityTimeout,
+		batchSize:         o.batchSize,
+		processTimeout:    o.processTimeout,
 
 		tasksMap:  make(map[string]ucdef.AsyncTask[any]),
 		mu:        sync.RWMutex{},
@@ -70,6 +80,7 @@ func NewWorker(db *bun.DB, queueName string, opts ...WorkerOption) (Worker, erro
 
 const (
 	extendedContextTimeout = 3 * time.Second
+	shutdownTimeout        = 10 * time.Second
 )
 
 type worker struct {
@@ -122,7 +133,7 @@ func (w *worker) Stop() error {
 	case <-w.stoppedCh:
 		return nil
 	case <-time.After(shutdownTimeout):
-		return errx.New("[taskmill]: worker shutdown timeout exceeded")
+		return errx.New("[worker]: shutdown timeout exceeded")
 	}
 }
 
@@ -140,7 +151,7 @@ func (w *worker) workerLoop(ctx context.Context) {
 		default:
 			tasks, err := w.dequeueTasks(ctx)
 			if err != nil {
-				w.logger.With("error", err).Error("[taskmill]: worker failed to dequeue tasks")
+				w.logger.With("error", err).Error("[worker]: failed to dequeue tasks")
 				time.Sleep(w.pollInterval)
 				continue
 			}
@@ -190,7 +201,7 @@ type handleFunc func(context.Context, pgqueue.Task) error
 func (w *worker) processTask(ctx context.Context, queueTask pgqueue.Task) error {
 	operationID := queueTask.OperationID
 	if operationID == "" {
-		return errx.New("[taskmill]: task missing operation_id",
+		return errx.New("[worker]: task missing operation_id",
 			errx.WithCode(CodeInvalidPayload),
 			errx.WithDetails(errx.D{"task": queueTask}))
 	}
@@ -200,7 +211,7 @@ func (w *worker) processTask(ctx context.Context, queueTask pgqueue.Task) error 
 	w.mu.RUnlock()
 
 	if !exists {
-		return errx.New("[taskmill]: task not registered",
+		return errx.New("[worker]: task not registered",
 			errx.WithCode(CodeTaskNotRegistered),
 			errx.WithDetails(errx.D{"operation_id": operationID}))
 	}
@@ -213,7 +224,7 @@ func (w *worker) processTask(ctx context.Context, queueTask pgqueue.Task) error 
 			w.logger.With(
 				"operation_id", operationID,
 				"task_id", queueTask.ID,
-			).Error("[taskmill]: worker failed to nack task: " + nackerr.Error())
+			).Error("[worker]: failed to nack task: " + nackerr.Error())
 		}
 	} else {
 		ackerr := w.ackTask(ctx, queueTask)
@@ -221,7 +232,7 @@ func (w *worker) processTask(ctx context.Context, queueTask pgqueue.Task) error 
 			w.logger.With(
 				"operation_id", operationID,
 				"task_id", queueTask.ID,
-			).Error("[taskmill]: worker failed to ack task: " + ackerr.Error())
+			).Error("[worker]: failed to ack task: " + ackerr.Error())
 		}
 	}
 
@@ -296,7 +307,7 @@ func (w *worker) processWithLogging(next handleFunc) handleFunc {
 		if err != nil {
 			logger.Errorx(err)
 		} else {
-			logger.Info("[taskmill]: task processed successfully")
+			logger.Info("[worker]: task processed successfully")
 		}
 
 		return err
@@ -328,7 +339,7 @@ func (w *worker) processWithAlerting(next handleFunc) handleFunc {
 
 			senderr := alert.SendError(ctx, e.Code(), err.Error(), operation, details)
 			if senderr != nil {
-				logger.With("alert_send_error", senderr).Warn("[taskmill]: failed to send error alert")
+				logger.With("alert_send_error", senderr).Warn("[worker]: failed to send error alert")
 			}
 		}()
 
@@ -405,7 +416,7 @@ func (w *worker) processWithRecovery(next handleFunc) handleFunc {
 						"recover", r,
 						"task", t,
 					).
-					Error("[taskmill]: worker panicked at recovery wrapper")
+					Error("[worker]: panicked at recovery wrapper")
 
 				alertctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), extendedContextTimeout)
 				operationID := fmt.Sprintf("async-task: %s", t.OperationID)
@@ -415,14 +426,14 @@ func (w *worker) processWithRecovery(next handleFunc) handleFunc {
 					_ = alert.SendError(
 						alertctx,
 						"PANIC",
-						"[taskmill]: worker panicked at recovery wrapper",
+						"[worker]: panicked at recovery wrapper",
 						operationID,
 						map[string]string{"recover": fmt.Sprintf("%v", r)},
 					)
 				}()
 
 				// Return error so task gets nacked instead of acked
-				err = errx.New("[taskmill]: worker panicked at recovery wrapper", errx.WithDetails(errx.D{
+				err = errx.New("[worker]: panicked at recovery wrapper", errx.WithDetails(errx.D{
 					"panic": fmt.Sprintf("%v", r),
 				}))
 			}
@@ -437,7 +448,7 @@ func executeWithRecovery(ctx context.Context, task ucdef.AsyncTask[any], payload
 			stackTrace := make([]byte, 4096) // 4KB
 			stackTrace = stackTrace[:runtime.Stack(stackTrace, false)]
 
-			err = errx.New("[taskmill]: worker panicked at task execution", errx.WithDetails(errx.D{
+			err = errx.New("[worker]: panicked at task execution", errx.WithDetails(errx.D{
 				"stack_trace":   string(stackTrace),
 				"panic_message": fmt.Sprintf("%v", r),
 			}))

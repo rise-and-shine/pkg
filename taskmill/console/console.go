@@ -1,13 +1,19 @@
-package taskmill
+package console
 
 import (
 	"context"
 
 	"github.com/code19m/errx"
+	"github.com/rise-and-shine/pkg/taskmill/enqueuer"
+	"github.com/rise-and-shine/pkg/taskmill/internal/config"
 	"github.com/rise-and-shine/pkg/taskmill/internal/pgqueue"
 	"github.com/uptrace/bun"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/propagation"
+)
+
+// Error codes for console operations.
+const (
+	// CodeScheduleNotFound is returned when a schedule is not found.
+	CodeScheduleNotFound = "SCHEDULE_NOT_FOUND"
 )
 
 // Console provides administrative and monitoring operations for taskmill.
@@ -34,7 +40,7 @@ type Console interface {
 
 	// TriggerSchedule manually triggers a scheduled task to run immediately.
 	// The task is enqueued to the queue specified in the schedule.
-	TriggerSchedule(ctx context.Context, operationID string, opts ...EnqueueOption) error
+	TriggerSchedule(ctx context.Context, operationID string, opts ...enqueuer.Option) error
 
 	// ListResults queries completed task history with filtering.
 	ListResults(ctx context.Context, params ListResultsParams) ([]TaskResult, error)
@@ -43,10 +49,10 @@ type Console interface {
 	CleanupResults(ctx context.Context, params CleanupResultsParams) (int64, error)
 }
 
-// NewConsole creates a new Console instance.
+// New creates a new Console instance.
 // Console is a global administrative component that works across all queues.
-func NewConsole(db *bun.DB) (Console, error) {
-	queue, err := pgqueue.NewQueue(getSchemaName(), getRetryStrategy())
+func New(db *bun.DB) (Console, error) {
+	queue, err := pgqueue.NewQueue(config.SchemaName(), config.RetryStrategy())
 	if err != nil {
 		return nil, errx.Wrap(err)
 	}
@@ -124,38 +130,21 @@ func (c *console) RequeueFromDLQ(ctx context.Context, taskID int64) error {
 	return errx.Wrap(c.queue.RequeueFromDLQ(ctx, c.db, taskID))
 }
 
-func (c *console) TriggerSchedule(ctx context.Context, operationID string, opts ...EnqueueOption) error {
+func (c *console) TriggerSchedule(ctx context.Context, operationID string, opts ...enqueuer.Option) error {
 	// Get schedule from DB to verify it exists and get its queue name
 	schedule, err := c.queue.GetScheduleByOperationID(ctx, c.db, operationID)
 	if err != nil {
 		return errx.Wrap(err, errx.WithCode(CodeScheduleNotFound))
 	}
 
-	// Apply enqueue options
-	options := defaultEnqueueOptions()
-	for _, opt := range opts {
-		opt(options)
-	}
-
-	// Build meta with trace context
-	meta := buildConsoleMeta(ctx)
-
-	// Build task params
-	taskParams := pgqueue.TaskParams{
-		OperationID:    operationID,
-		Meta:           meta,
-		Payload:        struct{}{}, // Empty payload for scheduled tasks
-		IdempotencyKey: options.idempotencyKey,
-		TaskGroupID:    options.taskGroupID,
-		Priority:       options.priority,
-		ScheduledAt:    options.scheduledAt,
-		MaxAttempts:    options.maxAttempts,
-		ExpiresAt:      options.expiresAt,
-		Ephemeral:      options.ephemeral,
+	// Create enqueuer for the schedule's queue
+	enq, err := enqueuer.New(schedule.QueueName)
+	if err != nil {
+		return errx.Wrap(err)
 	}
 
 	// Enqueue to the queue specified in the schedule
-	_, err = c.queue.EnqueueBatch(ctx, c.db, schedule.QueueName, []pgqueue.TaskParams{taskParams})
+	_, err = enq.Enqueue(ctx, c.db, operationID, struct{}{}, opts...)
 	if err != nil {
 		return errx.Wrap(err)
 	}
@@ -214,12 +203,4 @@ func (c *console) CleanupResults(ctx context.Context, params CleanupResultsParam
 	}
 
 	return count, nil
-}
-
-// buildConsoleMeta extracts trace context from the context and returns it as a map.
-func buildConsoleMeta(ctx context.Context) map[string]string {
-	propagator := otel.GetTextMapPropagator()
-	carrier := make(map[string]string)
-	propagator.Inject(ctx, propagation.MapCarrier(carrier))
-	return carrier
 }

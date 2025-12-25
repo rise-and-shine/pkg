@@ -1,4 +1,4 @@
-package taskmill
+package scheduler
 
 import (
 	"context"
@@ -7,9 +7,17 @@ import (
 
 	"github.com/code19m/errx"
 	"github.com/rise-and-shine/pkg/observability/logger"
+	"github.com/rise-and-shine/pkg/taskmill/enqueuer"
+	"github.com/rise-and-shine/pkg/taskmill/internal/config"
 	"github.com/rise-and-shine/pkg/taskmill/internal/pgqueue"
 	"github.com/robfig/cron/v3"
 	"github.com/uptrace/bun"
+)
+
+// Error codes for scheduler operations.
+const (
+	// CodeScheduleNotFound is returned when a schedule is not found.
+	CodeScheduleNotFound = "SCHEDULE_NOT_FOUND"
 )
 
 // Scheduler is a cron-based task scheduler.
@@ -27,32 +35,19 @@ type Scheduler interface {
 	Stop() error
 }
 
-// Schedule defines a cron-based schedule.
-type Schedule struct {
-	// CronPattern is a standard cron expression (e.g., "0 0 * * *" for daily at midnight).
-	CronPattern string
-
-	// OperationID is a unique identifier for the task.
-	// Should match the OperationID of the ucdef.AsyncTask.
-	OperationID string
-
-	// EnqueueOptions are additional options for enqueuing the task.
-	EnqueueOptions []EnqueueOption
-}
-
-// NewScheduler creates a new Scheduler instance.
-func NewScheduler(db *bun.DB, queueName string, opts ...SchedulerOption) (Scheduler, error) {
-	options := defaultSchedulerOptions()
+// New creates a new Scheduler instance.
+func New(db *bun.DB, queueName string, opts ...Option) (Scheduler, error) {
+	o := defaultOptions()
 	for _, opt := range opts {
-		opt(&options)
+		opt(&o)
 	}
 
-	queue, err := pgqueue.NewQueue(getSchemaName(), getRetryStrategy())
+	queue, err := pgqueue.NewQueue(config.SchemaName(), config.RetryStrategy())
 	if err != nil {
 		return nil, errx.Wrap(err)
 	}
 
-	enqueuer, err := NewEnqueuer(queueName)
+	enq, err := enqueuer.New(queueName)
 	if err != nil {
 		return nil, errx.Wrap(err)
 	}
@@ -64,12 +59,12 @@ func NewScheduler(db *bun.DB, queueName string, opts ...SchedulerOption) (Schedu
 	scheduler := &scheduler{
 		db:            db,
 		queue:         queue,
-		enqueuer:      enqueuer,
+		enqueuer:      enq,
 		queueName:     queueName,
-		checkInterval: options.checkInterval,
+		checkInterval: o.checkInterval,
 		cronParser:    parser,
 
-		enqueueOptsMap: make(map[string][]EnqueueOption),
+		enqueueOptsMap: make(map[string][]enqueuer.Option),
 		stopCh:         make(chan struct{}),
 		stoppedCh:      make(chan struct{}),
 		logger:         logger.Named("taskmill.scheduler"),
@@ -86,13 +81,13 @@ type scheduler struct {
 	db *bun.DB
 
 	queue         pgqueue.Queue
-	enqueuer      Enqueuer
+	enqueuer      enqueuer.Enqueuer
 	queueName     string
 	checkInterval time.Duration
 	cronParser    cron.Parser
 
 	// enqueueOptsMap stores enqueue options by operation ID (in-memory only)
-	enqueueOptsMap map[string][]EnqueueOption
+	enqueueOptsMap map[string][]enqueuer.Option
 
 	stopCh    chan struct{}
 	stoppedCh chan struct{}
@@ -134,7 +129,7 @@ func (s *scheduler) RegisterSchedules(ctx context.Context, schedules ...Schedule
 			"operation_id", schedule.OperationID,
 			"cron_pattern", schedule.CronPattern,
 			"next_run", nextRun.Format(time.RFC3339),
-		).Info("[taskmill]: schedule registered")
+		).Info("[scheduler]: schedule registered")
 	}
 
 	// Delete schedules not in the list
@@ -144,7 +139,7 @@ func (s *scheduler) RegisterSchedules(ctx context.Context, schedules ...Schedule
 	}
 
 	if deleted > 0 {
-		s.logger.With("count", deleted).Info("[taskmill]: removed old schedules")
+		s.logger.With("count", deleted).Info("[scheduler]: removed old schedules")
 	}
 
 	return nil
@@ -177,7 +172,7 @@ func (s *scheduler) Stop() error {
 	case <-s.stoppedCh:
 		return nil
 	case <-time.After(shutdownTimeout):
-		return errx.New("[taskmill]: scheduler shutdown timeout exceeded")
+		return errx.New("[scheduler]: shutdown timeout exceeded")
 	}
 }
 
@@ -186,7 +181,7 @@ func (s *scheduler) checkSchedules(ctx context.Context) {
 	for {
 		processed, err := s.processOneSchedule(ctx)
 		if err != nil {
-			s.logger.With("error", err).Error("[taskmill]: failed to process schedule")
+			s.logger.With("error", err).Error("[scheduler]: failed to process schedule")
 			return
 		}
 		if !processed {
@@ -260,12 +255,12 @@ func (s *scheduler) processOneSchedule(ctx context.Context) (bool, error) {
 		s.logger.With(
 			"operation_id", schedule.OperationID,
 			"error", enqueueErr,
-		).Error("[taskmill]: task scheduling failed")
+		).Error("[scheduler]: task scheduling failed")
 	} else {
 		s.logger.With(
 			"operation_id", schedule.OperationID,
 			"next_run", nextRun.Format(time.RFC3339),
-		).Info("[taskmill]: task scheduled successfully")
+		).Info("[scheduler]: task scheduled successfully")
 	}
 
 	return true, nil

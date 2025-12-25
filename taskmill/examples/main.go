@@ -14,6 +14,10 @@ import (
 	"github.com/creasty/defaults"
 	"github.com/rise-and-shine/pkg/pg"
 	"github.com/rise-and-shine/pkg/taskmill"
+	"github.com/rise-and-shine/pkg/taskmill/console"
+	"github.com/rise-and-shine/pkg/taskmill/enqueuer"
+	"github.com/rise-and-shine/pkg/taskmill/scheduler"
+	"github.com/rise-and-shine/pkg/taskmill/worker"
 	"github.com/uptrace/bun"
 )
 
@@ -127,10 +131,10 @@ func main() {
 	log.Println("Migrations completed!")
 
 	// Create components
-	enqueuer := createEnqueuer()
-	worker := createWorker(db)
-	scheduler := createScheduler(ctx, db)
-	console := createConsole(db)
+	enq := createEnqueuer()
+	wrk := createWorker(db)
+	sched := createScheduler(ctx, db)
+	cons := createConsole(db)
 
 	// Start worker and scheduler in background
 	var wg sync.WaitGroup
@@ -139,7 +143,7 @@ func main() {
 	go func() {
 		defer wg.Done()
 		log.Println("Starting worker...")
-		if err := worker.Start(ctx); err != nil {
+		if err := wrk.Start(ctx); err != nil {
 			log.Printf("Worker error: %v", err)
 		}
 	}()
@@ -148,18 +152,18 @@ func main() {
 	go func() {
 		defer wg.Done()
 		log.Println("Starting scheduler...")
-		if err := scheduler.Start(ctx); err != nil {
+		if err := sched.Start(ctx); err != nil {
 			log.Printf("Scheduler error: %v", err)
 		}
 	}()
 
 	// Enqueue some tasks
 	log.Println("\n=== Enqueuing tasks ===")
-	enqueueTasks(ctx, db, enqueuer)
+	enqueueTasks(ctx, db, enq)
 
 	// Demonstrate Console functionality
 	log.Println("\n=== Console Demo ===")
-	demonstrateConsole(ctx, console)
+	demonstrateConsole(ctx, cons)
 
 	// Wait for signal
 	log.Println("\n=== Running (press Ctrl+C to stop) ===")
@@ -169,10 +173,10 @@ func main() {
 	log.Println("\nShutting down...")
 	cancel()
 
-	if err := scheduler.Stop(); err != nil {
+	if err := sched.Stop(); err != nil {
 		log.Printf("Scheduler stop error: %v", err)
 	}
-	if err := worker.Stop(); err != nil {
+	if err := wrk.Stop(); err != nil {
 		log.Printf("Worker stop error: %v", err)
 	}
 
@@ -197,58 +201,58 @@ func connectDB() *bun.DB {
 	return db
 }
 
-func createEnqueuer() taskmill.Enqueuer {
-	enqueuer, err := taskmill.NewEnqueuer(queueName)
+func createEnqueuer() enqueuer.Enqueuer {
+	enq, err := enqueuer.New(queueName)
 	if err != nil {
 		log.Fatalf("Failed to create enqueuer: %v", err)
 	}
-	return enqueuer
+	return enq
 }
 
-func createWorker(db *bun.DB) taskmill.Worker {
-	worker, err := taskmill.NewWorker(db, queueName,
-		taskmill.WithConcurrency(2),
-		taskmill.WithPollInterval(500*time.Millisecond),
-		taskmill.WithProcessTimeout(30*time.Second),
+func createWorker(db *bun.DB) worker.Worker {
+	wrk, err := worker.New(db, queueName,
+		worker.WithConcurrency(2),
+		worker.WithPollInterval(500*time.Millisecond),
+		worker.WithProcessTimeout(30*time.Second),
 	)
 	if err != nil {
 		log.Fatalf("Failed to create worker: %v", err)
 	}
 
 	// Register task handlers
-	worker.RegisterAsyncTask(&SendEmailTask{})
-	worker.RegisterAsyncTask(&GenerateReportTask{})
-	worker.RegisterAsyncTask(&CleanupTask{})
-	worker.RegisterAsyncTask(&HealthCheckTask{})
+	wrk.RegisterAsyncTask(&SendEmailTask{})
+	wrk.RegisterAsyncTask(&GenerateReportTask{})
+	wrk.RegisterAsyncTask(&CleanupTask{})
+	wrk.RegisterAsyncTask(&HealthCheckTask{})
 
 	log.Println("Worker created with registered tasks: email.send, report.generate, cleanup.expired, health.check")
-	return worker
+	return wrk
 }
 
-func createScheduler(ctx context.Context, db *bun.DB) taskmill.Scheduler {
-	scheduler, err := taskmill.NewScheduler(db, queueName,
-		taskmill.WithCheckInterval(1*time.Second),
+func createScheduler(ctx context.Context, db *bun.DB) scheduler.Scheduler {
+	sched, err := scheduler.New(db, queueName,
+		scheduler.WithCheckInterval(1*time.Second),
 	)
 	if err != nil {
 		log.Fatalf("Failed to create scheduler: %v", err)
 	}
 
 	// Register schedules
-	err = scheduler.RegisterSchedules(ctx,
+	err = sched.RegisterSchedules(ctx,
 		// Run cleanup every minute
-		taskmill.Schedule{
+		scheduler.Schedule{
 			OperationID: "cleanup.expired",
 			CronPattern: "* * * * *", // Every minute
-			EnqueueOptions: []taskmill.EnqueueOption{
-				taskmill.WithEphemeral(), // Don't save results for scheduled cleanup
+			EnqueueOptions: []enqueuer.Option{
+				enqueuer.WithEphemeral(), // Don't save results for scheduled cleanup
 			},
 		},
 		// Run health check every 2 minutes
-		taskmill.Schedule{
+		scheduler.Schedule{
 			OperationID: "health.check",
 			CronPattern: "*/2 * * * *", // Every 2 minutes
-			EnqueueOptions: []taskmill.EnqueueOption{
-				taskmill.WithEphemeral(),
+			EnqueueOptions: []enqueuer.Option{
+				enqueuer.WithEphemeral(),
 			},
 		},
 	)
@@ -257,20 +261,20 @@ func createScheduler(ctx context.Context, db *bun.DB) taskmill.Scheduler {
 	}
 
 	log.Println("Scheduler created with schedules: cleanup.expired (every min), health.check (every 2 min)")
-	return scheduler
+	return sched
 }
 
-func createConsole(db *bun.DB) taskmill.Console {
-	console, err := taskmill.NewConsole(db)
+func createConsole(db *bun.DB) console.Console {
+	cons, err := console.New(db)
 	if err != nil {
 		log.Fatalf("Failed to create console: %v", err)
 	}
-	return console
+	return cons
 }
 
-func enqueueTasks(ctx context.Context, db *bun.DB, enqueuer taskmill.Enqueuer) {
+func enqueueTasks(ctx context.Context, db *bun.DB, enq enqueuer.Enqueuer) {
 	// Example 1: Simple task with map payload
-	taskID, err := enqueuer.Enqueue(ctx, db, "email.send", map[string]any{
+	taskID, err := enq.Enqueue(ctx, db, "email.send", map[string]any{
 		"to":      "user@example.com",
 		"subject": "Welcome!",
 		"body":    "Hello and welcome to our service!",
@@ -282,9 +286,9 @@ func enqueueTasks(ctx context.Context, db *bun.DB, enqueuer taskmill.Enqueuer) {
 	}
 
 	// Example 2: Task with priority
-	taskID, err = enqueuer.Enqueue(ctx, db, "report.generate",
+	taskID, err = enq.Enqueue(ctx, db, "report.generate",
 		map[string]any{"report_type": "monthly", "month": "2024-01"},
-		taskmill.WithPriority(10), // Higher priority
+		enqueuer.WithPriority(10), // Higher priority
 	)
 	if err != nil {
 		log.Printf("Failed to enqueue report task: %v", err)
@@ -293,9 +297,9 @@ func enqueueTasks(ctx context.Context, db *bun.DB, enqueuer taskmill.Enqueuer) {
 	}
 
 	// Example 3: Scheduled task (delayed execution)
-	taskID, err = enqueuer.Enqueue(ctx, db, "email.send",
+	taskID, err = enq.Enqueue(ctx, db, "email.send",
 		map[string]any{"to": "delayed@example.com", "subject": "Delayed Email"},
-		taskmill.WithScheduledAt(time.Now().Add(10*time.Second)),
+		enqueuer.WithScheduledAt(time.Now().Add(10*time.Second)),
 	)
 	if err != nil {
 		log.Printf("Failed to enqueue delayed task: %v", err)
@@ -304,9 +308,9 @@ func enqueueTasks(ctx context.Context, db *bun.DB, enqueuer taskmill.Enqueuer) {
 	}
 
 	// Example 4: Task with custom retry settings
-	taskID, err = enqueuer.Enqueue(ctx, db, "report.generate",
+	taskID, err = enq.Enqueue(ctx, db, "report.generate",
 		map[string]any{"report_type": "critical"},
-		taskmill.WithMaxAttempts(5),
+		enqueuer.WithMaxAttempts(5),
 	)
 	if err != nil {
 		log.Printf("Failed to enqueue critical task: %v", err)
@@ -315,9 +319,9 @@ func enqueueTasks(ctx context.Context, db *bun.DB, enqueuer taskmill.Enqueuer) {
 	}
 
 	// Example 5: Ephemeral task (won't be saved to results)
-	taskID, err = enqueuer.Enqueue(ctx, db, "email.send",
+	taskID, err = enq.Enqueue(ctx, db, "email.send",
 		map[string]any{"to": "ephemeral@example.com"},
-		taskmill.WithEphemeral(),
+		enqueuer.WithEphemeral(),
 	)
 	if err != nil {
 		log.Printf("Failed to enqueue ephemeral task: %v", err)
@@ -327,9 +331,9 @@ func enqueueTasks(ctx context.Context, db *bun.DB, enqueuer taskmill.Enqueuer) {
 
 	// Example 6: Task with idempotency key (prevents duplicates)
 	idempotencyKey := fmt.Sprintf("invoice-%s", "inv_12345")
-	taskID, err = enqueuer.Enqueue(ctx, db, "report.generate",
+	taskID, err = enq.Enqueue(ctx, db, "report.generate",
 		map[string]any{"invoice_id": "inv_12345"},
-		taskmill.WithIdempotencyKey(idempotencyKey),
+		enqueuer.WithIdempotencyKey(idempotencyKey),
 	)
 	if err != nil {
 		log.Printf("Failed to enqueue idempotent task: %v", err)
@@ -338,19 +342,45 @@ func enqueueTasks(ctx context.Context, db *bun.DB, enqueuer taskmill.Enqueuer) {
 	}
 
 	// Try to enqueue duplicate - should fail
-	_, err = enqueuer.Enqueue(ctx, db, "report.generate",
+	_, err = enq.Enqueue(ctx, db, "report.generate",
 		map[string]any{"invoice_id": "inv_12345"},
-		taskmill.WithIdempotencyKey(idempotencyKey),
+		enqueuer.WithIdempotencyKey(idempotencyKey),
 	)
 	if err != nil {
 		log.Printf("Duplicate task rejected (expected): %v", err)
 	}
+
+	// Example 7: Batch enqueue - multiple tasks in a single operation
+	log.Println("\n--- Batch Enqueue ---")
+	batchTasks := []enqueuer.BatchTask{
+		{
+			OperationID: "email.send",
+			Payload:     map[string]any{"to": "batch1@example.com", "subject": "Batch Email 1"},
+		},
+		{
+			OperationID: "email.send",
+			Payload:     map[string]any{"to": "batch2@example.com", "subject": "Batch Email 2"},
+			Options:     []enqueuer.Option{enqueuer.WithPriority(5)},
+		},
+		{
+			OperationID: "report.generate",
+			Payload:     map[string]any{"report_type": "batch_report", "items": []string{"a", "b", "c"}},
+			Options:     []enqueuer.Option{enqueuer.WithMaxAttempts(5), enqueuer.WithEphemeral()},
+		},
+	}
+
+	taskIDs, err := enq.EnqueueBatch(ctx, db, batchTasks)
+	if err != nil {
+		log.Printf("Failed to enqueue batch: %v", err)
+	} else {
+		log.Printf("Enqueued batch of %d tasks with IDs: %v", len(taskIDs), taskIDs)
+	}
 }
 
-func demonstrateConsole(ctx context.Context, console taskmill.Console) {
+func demonstrateConsole(ctx context.Context, cons console.Console) {
 	// 1. List all queues
 	log.Println("\n--- ListQueues ---")
-	queues, err := console.ListQueues(ctx)
+	queues, err := cons.ListQueues(ctx)
 	if err != nil {
 		log.Printf("Failed to list queues: %v", err)
 	} else {
@@ -359,7 +389,7 @@ func demonstrateConsole(ctx context.Context, console taskmill.Console) {
 
 	// 2. Get queue statistics
 	log.Println("\n--- Stats ---")
-	stats, err := console.Stats(ctx, queueName)
+	stats, err := cons.Stats(ctx, queueName)
 	if err != nil {
 		log.Printf("Failed to get stats: %v", err)
 	} else {
@@ -371,7 +401,7 @@ func demonstrateConsole(ctx context.Context, console taskmill.Console) {
 
 	// 3. List all schedules
 	log.Println("\n--- ListSchedules ---")
-	schedules, err := console.ListSchedules(ctx, nil)
+	schedules, err := cons.ListSchedules(ctx, nil)
 	if err != nil {
 		log.Printf("Failed to list schedules: %v", err)
 	} else {
@@ -392,7 +422,7 @@ func demonstrateConsole(ctx context.Context, console taskmill.Console) {
 
 	// 4. Trigger a schedule manually
 	log.Println("\n--- TriggerSchedule ---")
-	err = console.TriggerSchedule(ctx, "health.check", taskmill.WithPriority(50))
+	err = cons.TriggerSchedule(ctx, "health.check", enqueuer.WithPriority(50))
 	if err != nil {
 		log.Printf("Failed to trigger schedule: %v", err)
 	} else {
@@ -401,7 +431,7 @@ func demonstrateConsole(ctx context.Context, console taskmill.Console) {
 
 	// 5. List completed task results
 	log.Println("\n--- ListResults ---")
-	results, err := console.ListResults(ctx, taskmill.ListResultsParams{
+	results, err := cons.ListResults(ctx, console.ListResultsParams{
 		Limit: 5,
 	})
 	if err != nil {
@@ -418,7 +448,7 @@ func demonstrateConsole(ctx context.Context, console taskmill.Console) {
 	// 6. Cleanup old results (example: delete results older than 1 hour)
 	log.Println("\n--- CleanupResults ---")
 	oneHourAgo := time.Now().Add(-1 * time.Hour)
-	deleted, err := console.CleanupResults(ctx, taskmill.CleanupResultsParams{
+	deleted, err := cons.CleanupResults(ctx, console.CleanupResultsParams{
 		CompletedBefore: oneHourAgo,
 	})
 	if err != nil {
@@ -429,12 +459,12 @@ func demonstrateConsole(ctx context.Context, console taskmill.Console) {
 
 	// 7. Purge operations (commented out - destructive!)
 	// log.Println("\n--- Purge/PurgeDLQ ---")
-	// console.Purge(ctx, queueName)      // Deletes all pending tasks
-	// console.PurgeDLQ(ctx, queueName)   // Deletes all DLQ tasks
+	// cons.Purge(ctx, queueName)      // Deletes all pending tasks
+	// cons.PurgeDLQ(ctx, queueName)   // Deletes all DLQ tasks
 
 	// 8. Requeue from DLQ (would need a task ID)
 	// log.Println("\n--- RequeueFromDLQ ---")
-	// console.RequeueFromDLQ(ctx, taskID) // Moves task from DLQ back to queue
+	// cons.RequeueFromDLQ(ctx, taskID) // Moves task from DLQ back to queue
 }
 
 func setDefaults(config any) {

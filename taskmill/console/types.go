@@ -1,4 +1,4 @@
-package taskmill
+package console
 
 import "time"
 
