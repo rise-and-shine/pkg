@@ -300,6 +300,8 @@ func (w *worker) processWithLogging(next handleFunc) handleFunc {
 		err := next(ctx, t)
 
 		logger = logger.With(
+			"service_name", meta.ServiceName(),
+			"service_version", meta.ServiceVersion(),
 			"task", t,
 			"duration", time.Since(start).Round(time.Microsecond),
 		)
@@ -326,10 +328,9 @@ func (w *worker) processWithAlerting(next handleFunc) handleFunc {
 		e := errx.AsErrorX(err)
 		operation := fmt.Sprintf("async-task: %s", t.OperationID)
 		details := make(map[string]string)
-		metaCtx := meta.ExtractMetaFromContext(ctx)
-		for k, v := range metaCtx {
-			details[string(k)] = v
-		}
+		details["trace_id"] = meta.Find(ctx, meta.TraceID)
+		details["service_name"] = meta.ServiceName()
+		details["service_version"] = meta.ServiceVersion()
 		details["error_trace"] = e.Trace()
 
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), extendedContextTimeout)
@@ -351,8 +352,6 @@ func (w *worker) processWithAlerting(next handleFunc) handleFunc {
 func (w *worker) processWithMetaInjection(next handleFunc) handleFunc {
 	return func(ctx context.Context, t pgqueue.Task) error {
 		ctx = context.WithValue(ctx, meta.TraceID, getTraceID(ctx))
-		ctx = context.WithValue(ctx, meta.ServiceName, meta.GetServiceName())
-		ctx = context.WithValue(ctx, meta.ServiceVersion, meta.GetServiceVersion())
 		return next(ctx, t)
 	}
 }

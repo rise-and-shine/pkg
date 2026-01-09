@@ -30,6 +30,8 @@ func NewAlertingMW() server.Middleware {
 		Handler: func(c *fiber.Ctx) error {
 			ctx := c.UserContext()
 
+			operation := fmt.Sprintf("%s %s", c.Method(), c.Route().Path)
+
 			log := logger.Named("http.alerting").WithContext(ctx)
 
 			err := c.Next()
@@ -40,24 +42,22 @@ func NewAlertingMW() server.Middleware {
 
 			e := errx.AsErrorX(err)
 
-			// only process internal errors
+			// only alert internal errors
 			if e.Type() != errx.T_Internal {
 				return err
 			}
 
-			operation := fmt.Sprintf("%s %s", c.Method(), c.Route().Path)
-
 			details := make(map[string]string)
+			details["trace_id"] = meta.Find(ctx, meta.TraceID)
+			details["service_name"] = meta.ServiceName()
+			details["service_version"] = meta.ServiceVersion()
 			details["error_trace"] = e.Trace()
-
-			metaCtx := meta.ExtractMetaFromContext(ctx)
-			for k, v := range metaCtx {
-				details[string(k)] = v
-			}
-
-			// get actor info from locals
+			// get actor and object info from locals
+			details["operation_id"] = cast.ToString(c.Locals(meta.OperationID))
 			details["actor_type"] = cast.ToString(c.Locals(meta.ActorType))
 			details["actor_id"] = cast.ToString(c.Locals(meta.ActorID))
+			details["object_type"] = cast.ToString(c.Locals(meta.ObjectType))
+			details["object_id"] = cast.ToString(c.Locals(meta.ObjectID))
 
 			newCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), alertSendTimeout)
 

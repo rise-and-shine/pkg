@@ -23,8 +23,6 @@ func NewMetaInjectMW() server.Middleware {
 			traceID := getTraceID(ctx)
 
 			ctx = context.WithValue(ctx, meta.TraceID, traceID)
-			ctx = context.WithValue(ctx, meta.ServiceName, meta.GetServiceName())
-			ctx = context.WithValue(ctx, meta.ServiceVersion, meta.GetServiceVersion())
 
 			c.SetUserContext(ctx)
 			c.Set("X-Request-ID", traceID)

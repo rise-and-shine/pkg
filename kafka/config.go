@@ -31,7 +31,7 @@ type ConsumerConfig struct {
 
 func (c *ConsumerConfig) getSaramaConfig() (*sarama.Config, error) {
 	if c.GroupID == "" {
-		c.GroupID = meta.GetServiceName()
+		c.GroupID = meta.ServiceName()
 	}
 	saramaConf := sarama.NewConfig()
 	saramaConf.ClientID = c.GroupID
@@ -74,7 +74,7 @@ type ProducerConfig struct {
 
 func (c *ProducerConfig) getSaramaConfig() (*sarama.Config, error) {
 	saramaCfg := sarama.NewConfig()
-	saramaCfg.ClientID = meta.GetServiceName()
+	saramaCfg.ClientID = meta.ServiceName()
 	version, err := sarama.ParseKafkaVersion(c.KafkaVersion)
 	if err != nil {
 		return nil, errx.Wrap(err)

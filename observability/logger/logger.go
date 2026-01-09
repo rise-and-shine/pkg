@@ -149,17 +149,9 @@ func (l *logger) WithContext(ctx context.Context) Logger {
 		return l
 	}
 
-	var withFields []any
-	metaData := meta.ExtractMetaFromContext(ctx)
-	for k, v := range metaData {
-		if v != "" {
-			// Convert ContextKey to string to avoid the "non-string keys" error
-			withFields = append(withFields, string(k), v)
-		}
-	}
-
-	if len(withFields) > 0 {
-		return l.With(withFields...)
+	traceID := meta.Find(ctx, meta.TraceID)
+	if traceID != "" {
+		return l.With("trace_id", traceID)
 	}
 
 	return l

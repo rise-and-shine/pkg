@@ -94,8 +94,6 @@ func (c *Consumer) handlerWithMetaInjection(next HandleFunc) HandleFunc {
 	return func(ctx context.Context, msg *sarama.ConsumerMessage) error {
 		// add meta info to context
 		ctx = context.WithValue(ctx, meta.TraceID, getTraceID(ctx))
-		ctx = context.WithValue(ctx, meta.ServiceName, meta.GetServiceName())
-		ctx = context.WithValue(ctx, meta.ServiceVersion, meta.GetServiceVersion())
 
 		return next(ctx, msg)
 	}
@@ -115,10 +113,9 @@ func (c *Consumer) handlerWithAlerting(next HandleFunc) HandleFunc {
 
 		operation := fmt.Sprintf("consumer topic: %s", msg.Topic)
 		details := make(map[string]string)
-		metaCtx := meta.ExtractMetaFromContext(ctx)
-		for k, v := range metaCtx {
-			details[string(k)] = v
-		}
+		details["trace_id"] = meta.Find(ctx, meta.TraceID)
+		details["service_name"] = meta.ServiceName()
+		details["service_version"] = meta.ServiceVersion()
 		details["error_trace"] = e.Trace()
 
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), alertTimeout)
@@ -152,6 +149,8 @@ func (c *Consumer) handlerWithLogging(next HandleFunc) HandleFunc {
 		})
 
 		logger = logger.With(
+			"service_name", meta.ServiceName(),
+			"service_version", meta.ServiceVersion(),
 			"topic", msg.Topic,
 			"partition", msg.Partition,
 			"offset", msg.Offset,

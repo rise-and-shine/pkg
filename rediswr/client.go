@@ -11,7 +11,7 @@ import (
 func New(cfg Config) redis.Cmdable {
 	client := redis.NewUniversalClient(&redis.UniversalOptions{
 		Addrs:         strings.Split(cfg.Addrs, ","),
-		ClientName:    meta.GetServiceName(),
+		ClientName:    meta.ServiceName(),
 		Username:      cfg.Username,
 		Password:      cfg.Password,
 		IsClusterMode: cfg.IsClusterMode,

@@ -36,6 +36,8 @@ func NewLoggerMW(debug bool) server.Middleware {
 			logger = withSafeHeaders(c, logger)
 
 			logger = logger.With(
+				"service_name", meta.ServiceName(),
+				"service_version", meta.ServiceVersion(),
 				"hostname", c.Hostname(),
 				"ip_addr", c.IP(),
 				"remote_addr", c.Context().RemoteAddr().String(),
@@ -50,8 +52,11 @@ func NewLoggerMW(debug bool) server.Middleware {
 
 			// get user data from locals which should be set by authentication middleware
 			logger = logger.With(
+				"operation_id", c.Locals(meta.OperationID),
 				"actor_type", c.Locals(meta.ActorType),
 				"actor_id", c.Locals(meta.ActorID),
+				"object_type", c.Locals(meta.ObjectType),
+				"object_id", c.Locals(meta.ObjectID),
 			)
 
 			// add query params
