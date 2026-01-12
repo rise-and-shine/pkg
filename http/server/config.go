@@ -7,8 +7,8 @@ import (
 
 // Config defines configuration options for the HTTP server.
 type Config struct {
-	// Debug enables debug mode for verbose responses on error cases.
-	Debug bool `yaml:"debug"`
+	// HideErrorDetails is a flag to hide error details in the response.
+	HideErrorDetails bool `yaml:"hide_error_details"`
 
 	// Host address to bind the server to (required).
 	Host string `yaml:"host" validate:"required"`

@@ -22,7 +22,7 @@ func NewHTTPServer(cfg Config, middlewares []Middleware) *HTTPServer {
 		ReadTimeout:              cfg.ReadTimeout,
 		WriteTimeout:             cfg.WriteTimeout,
 		IdleTimeout:              cfg.IdleTimeout,
-		ErrorHandler:             customErrorHandler(cfg.Debug),
+		ErrorHandler:             customErrorHandler(cfg.HideErrorDetails),
 		DisableStartupMessage:    true,
 		Immutable:                true,
 		BodyLimit:                cfg.BodyLimit,
