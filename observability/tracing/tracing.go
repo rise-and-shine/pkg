@@ -8,6 +8,7 @@ import (
 	"net"
 
 	"github.com/code19m/errx"
+	"github.com/rise-and-shine/pkg/meta"
 	"github.com/spf13/cast"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -21,14 +22,14 @@ import (
 )
 
 // InitGlobalTracer initializes a global OpenTelemetry tracer provider and OTLP exporter.
-// It takes a Config (exporter host/port, sample rate, tags), serviceName, and serviceVersion.
+// It takes a Config (exporter host/port, sample rate, tags)
 // It returns a shutdown function for the tracer provider and exporter (intended to be called with defer)
 // and an error if initialization fails.
 //
 // If cfg.Disable is true, a no-op tracer is used.
 // cfg.SampleRate controls the trace sampling fraction.
 // cfg.Tags are added as resource attributes to spans.
-func InitGlobalTracer(cfg Config, serviceName, serviceVersion string) (func() error, error) {
+func InitGlobalTracer(cfg Config) (func() error, error) {
 	if cfg.Disable {
 		otel.SetTracerProvider(noop.NewTracerProvider())
 		return func() error { return nil }, nil
@@ -56,8 +57,8 @@ func InitGlobalTracer(cfg Config, serviceName, serviceVersion string) (func() er
 	for k, v := range cfg.Tags {
 		attrs = append(attrs, attribute.String(k, v))
 	}
-	attrs = append(attrs, semconv.ServiceNameKey.String(serviceName))
-	attrs = append(attrs, semconv.ServiceVersionKey.String(serviceVersion))
+	attrs = append(attrs, semconv.ServiceNameKey.String(meta.ServiceName()))
+	attrs = append(attrs, semconv.ServiceVersionKey.String(meta.ServiceVersion()))
 
 	tp := trace.NewTracerProvider(
 		trace.WithSampler(
