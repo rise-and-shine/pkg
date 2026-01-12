@@ -4,7 +4,11 @@
 // implementation for sending alerts via gRPC to a Sentinel service.
 package alert
 
-import "context"
+import (
+	"context"
+
+	"github.com/rise-and-shine/pkg/meta"
+)
 
 // Provider defines the interface for sending error alerts.
 // Implementations of this interface can send alerts to various monitoring systems.
@@ -21,11 +25,11 @@ type Provider interface {
 
 // NewProvider creates a new alert provider.
 // If cfg.Disable is true, it returns a no-op provider.
-func NewProvider(cfg Config, serviceName, serviceVersion string) (Provider, error) {
+func NewProvider(cfg Config) (Provider, error) {
 	if cfg.Disable {
 		return &noOpProvider{}, nil
 	}
-	return newSentinelProvider(cfg, serviceName, serviceVersion)
+	return newSentinelProvider(cfg, meta.ServiceName(), meta.ServiceVersion())
 }
 
 // noOpProvider is a no-operation alert provider that does nothing.

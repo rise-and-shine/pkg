@@ -21,7 +21,7 @@ var (
 // Returns an error if:
 // - The provider creation fails;
 // - SetGlobal is called more than once.
-func SetGlobal(cfg Config, serviceName, serviceVersion string) error {
+func SetGlobal(cfg Config) error {
 	var err error
 	called := false
 
@@ -29,7 +29,7 @@ func SetGlobal(cfg Config, serviceName, serviceVersion string) error {
 		// Prevent lazy initialization from happening after this
 		initOnce.Do(func() {})
 
-		provider, providerErr := NewProvider(cfg, serviceName, serviceVersion)
+		provider, providerErr := NewProvider(cfg)
 		if providerErr != nil {
 			err = fmt.Errorf("[alert]: failed to initialize global alert provider: %w", providerErr)
 			return
