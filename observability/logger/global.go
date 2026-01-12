@@ -4,6 +4,8 @@ import (
 	"context"
 	"sync"
 	"sync/atomic"
+
+	"go.uber.org/zap"
 )
 
 //nolint:gochecknoglobals // Global variables are required for the global logger singleton pattern
@@ -123,17 +125,10 @@ func Sync() error {
 	return getGlobal().Sync()
 }
 
-// initDefault initializes the default logger lazily.
+// initDefault initializes the noop.
 func initDefault() {
 	initOnce.Do(func() {
-		defaultLogger, err := newLogger(Config{
-			Level:    levelDebug,
-			Encoding: encPretty,
-		})
-		if err != nil {
-			panic("[logger]: failed to initialize default logger: " + err.Error())
-		}
-		global.Store(defaultLogger)
+		global.Store(&logger{zap.NewNop().Sugar()})
 	})
 }
 

@@ -120,10 +120,9 @@ func (c *Consumer) buildHandlerChain() HandleFunc {
 	handler := c.handleFn
 
 	// build the chain in reverse order (last wrapper first)
-	handler = c.handlerWithErrorHandling(handler) // 7. error handling
-	handler = c.handlerWithLogging(handler)       // 6. logging
-	handler = c.handlerWithAlerting(handler)      // 5. alerting
-	handler = c.handlerWithMetaInjection(handler) // 4. meta injection
+	handler = c.handlerWithErrorHandling(handler) // 6. error handling
+	handler = c.handlerWithLogging(handler)       // 5. logging
+	handler = c.handlerWithAlerting(handler)      // 4. alerting
 	handler = c.handlerWithTimeout(handler)       // 3. timeout
 	handler = c.handlerWithTracing(handler)       // 2. tracing
 	handler = c.handlerWithRecovery(handler)      // 1. recovery (outermost)

@@ -10,10 +10,10 @@ import (
 	"time"
 
 	"github.com/code19m/errx"
-	"github.com/google/uuid"
 	"github.com/rise-and-shine/pkg/meta"
 	"github.com/rise-and-shine/pkg/observability/alert"
 	"github.com/rise-and-shine/pkg/observability/logger"
+	"github.com/rise-and-shine/pkg/observability/tracing"
 	"github.com/rise-and-shine/pkg/taskmill/internal/config"
 	"github.com/rise-and-shine/pkg/taskmill/internal/pgqueue"
 	"github.com/rise-and-shine/pkg/ucdef"
@@ -281,12 +281,11 @@ func (w *worker) buildProcessChain() handleFunc {
 	p := w.processTask
 
 	// build the chain in reverse order (last wrapper execute first)
-	p = w.processWithLogging(p)       // 6. logging
-	p = w.processWithAlerting(p)      // 5. alerting
-	p = w.processWithMetaInjection(p) // 4. meta injection
-	p = w.processWithTimeout(p)       // 3. timeout
-	p = w.processWithTracing(p)       // 2. tracing
-	p = w.processWithRecovery(p)      // 1. recovery (outermost)
+	p = w.processWithLogging(p)  // 5. logging
+	p = w.processWithAlerting(p) // 4. alerting
+	p = w.processWithTimeout(p)  // 3. timeout
+	p = w.processWithTracing(p)  // 2. tracing
+	p = w.processWithRecovery(p) // 1. recovery (outermost)
 
 	return p
 }
@@ -348,14 +347,6 @@ func (w *worker) processWithAlerting(next handleFunc) handleFunc {
 	}
 }
 
-// processWithMetaInjection uses global service info from meta.SetServiceInfo().
-func (w *worker) processWithMetaInjection(next handleFunc) handleFunc {
-	return func(ctx context.Context, t pgqueue.Task) error {
-		ctx = context.WithValue(ctx, meta.TraceID, getTraceID(ctx))
-		return next(ctx, t)
-	}
-}
-
 func (w *worker) processWithTimeout(next handleFunc) handleFunc {
 	return func(ctx context.Context, t pgqueue.Task) error {
 		timeout := w.processTimeout
@@ -382,6 +373,9 @@ func (w *worker) processWithTracing(next handleFunc) handleFunc {
 			),
 			trace.WithSpanKind(trace.SpanKindConsumer),
 		)
+
+		traceID := tracing.GetStartingTraceID(ctx)
+		ctx = context.WithValue(ctx, meta.TraceID, traceID)
 
 		// call the next handler
 		err := next(ctx, t)
@@ -454,19 +448,6 @@ func executeWithRecovery(ctx context.Context, task ucdef.AsyncTask[any], payload
 		}
 	}()
 	return task.Execute(ctx, payload)
-}
-
-// getTraceID extracts the trace ID from the current span in the context.
-// If no trace ID is available, it generates a new UUID to use as a trace ID.
-func getTraceID(ctx context.Context) string {
-	span := trace.SpanFromContext(ctx)
-	traceID := span.SpanContext().TraceID()
-
-	if traceID.IsValid() {
-		return traceID.String()
-	}
-
-	return fmt.Sprintf("man-%s", uuid.New().String())
 }
 
 func errxToMap(err error) map[string]any {

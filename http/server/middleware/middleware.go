@@ -14,7 +14,6 @@
 //   - Recovery (1000): Catches panics in the middleware chain
 //   - Tracing (900): Creates spans for request tracing
 //   - Timeout (800): Applies timeouts to request contexts
-//   - MetaInject (700): Injects metadata into the request context
 //   - Alerting (600): Sends alerts for internal server errors
 //   - Logger (500): Logs request and response details
 //   - ErrorHandler (400): Converts errors to standardized responses
@@ -28,7 +27,6 @@
 //		middleware.NewRecoveryMW(logger),
 //		middleware.NewTracingMW(),
 //		middleware.NewTimeoutMW(5 * time.Second),
-//		middleware.NewMetaInjectMW("my-service", "1.0.0"),
 //		middleware.NewAlertingMW(logger, alertProvider),
 //		middleware.NewLoggerMW(logger),
 //		middleware.NewErrorHandlerMW(false),

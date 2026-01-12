@@ -2,10 +2,13 @@
 package middleware
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/rise-and-shine/pkg/http/server"
+	"github.com/rise-and-shine/pkg/meta"
+	"github.com/rise-and-shine/pkg/observability/tracing"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
 	semconv "go.opentelemetry.io/otel/semconv/v1.23.1"
@@ -30,6 +33,10 @@ func NewTracingMW() server.Middleware {
 
 			ctx, span := otel.Tracer("http-server").Start(c.UserContext(), defaultSpanName, opts...)
 			defer span.End()
+
+			traceID := tracing.GetStartingTraceID(ctx)
+			ctx = context.WithValue(ctx, meta.TraceID, traceID)
+			c.Set("X-Trace-ID", traceID)
 
 			c.SetUserContext(ctx)
 

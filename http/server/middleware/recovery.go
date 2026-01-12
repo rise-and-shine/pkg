@@ -16,7 +16,7 @@ import (
 // This middleware serves as a safety net to catch any unexpected panics that may occur
 // during request processing. It captures the stack trace and panic message, logs the
 // information, and returns a structured error that can be handled by error middleware.
-func NewRecoveryMW(debug bool) server.Middleware {
+func NewRecoveryMW(hideDetails bool) server.Middleware {
 	return server.Middleware{
 		Priority: 1000,
 		Handler: func(c *fiber.Ctx) (err error) {
@@ -43,7 +43,7 @@ func NewRecoveryMW(debug bool) server.Middleware {
 						return
 					}
 
-					err = server.WriteErrorResponse(c, err, debug)
+					err = server.WriteErrorResponse(c, err, hideDetails)
 				}
 			}()
 

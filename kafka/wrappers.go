@@ -8,10 +8,10 @@ import (
 
 	"github.com/IBM/sarama"
 	"github.com/code19m/errx"
-	"github.com/google/uuid"
 	"github.com/rise-and-shine/pkg/kafka/otelsarama"
 	"github.com/rise-and-shine/pkg/meta"
 	"github.com/rise-and-shine/pkg/observability/alert"
+	"github.com/rise-and-shine/pkg/observability/tracing"
 	"github.com/samber/lo"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
@@ -64,6 +64,10 @@ func (c *Consumer) handlerWithTracing(next HandleFunc) HandleFunc {
 			),
 			trace.WithSpanKind(trace.SpanKindConsumer),
 		)
+		defer span.End()
+
+		traceID := tracing.GetStartingTraceID(ctx)
+		ctx = context.WithValue(ctx, meta.TraceID, traceID)
 
 		// call the next handler
 		err := next(ctx, msg)
@@ -72,8 +76,6 @@ func (c *Consumer) handlerWithTracing(next HandleFunc) HandleFunc {
 			span.SetStatus(codes.Error, err.Error())
 		}
 
-		// end the span
-		span.End()
 		return err
 	}
 }
@@ -83,17 +85,6 @@ func (c *Consumer) handlerWithTimeout(next HandleFunc) HandleFunc {
 	return func(ctx context.Context, msg *sarama.ConsumerMessage) error {
 		ctx, cancel := context.WithTimeout(ctx, c.cfg.HandlerTimeout)
 		defer cancel()
-
-		return next(ctx, msg)
-	}
-}
-
-// handlerWithMetaInjection is a wrapper around the handler to add meta injection.
-// Uses global service info from meta.SetServiceInfo().
-func (c *Consumer) handlerWithMetaInjection(next HandleFunc) HandleFunc {
-	return func(ctx context.Context, msg *sarama.ConsumerMessage) error {
-		// add meta info to context
-		ctx = context.WithValue(ctx, meta.TraceID, getTraceID(ctx))
 
 		return next(ctx, msg)
 	}
@@ -170,21 +161,9 @@ func (c *Consumer) handlerWithLogging(next HandleFunc) HandleFunc {
 }
 
 // handlerWithRecovery is a wrapper around the handler to add recovery.
+// TODO: implement dlq.
 func (c *Consumer) handlerWithErrorHandling(next HandleFunc) HandleFunc {
 	return func(ctx context.Context, msg *sarama.ConsumerMessage) error {
 		return errx.Wrap(next(ctx, msg), errx.WithType(errx.T_Internal))
 	}
-}
-
-// getTraceID extracts the trace ID from the current span in the context.
-// If no trace ID is available, it generates a new UUID to use as a trace ID.
-func getTraceID(ctx context.Context) string {
-	span := trace.SpanFromContext(ctx)
-	traceID := span.SpanContext().TraceID()
-
-	if traceID.IsValid() {
-		return traceID.String()
-	}
-
-	return fmt.Sprintf("man-%s", uuid.New().String())
 }

@@ -8,7 +8,6 @@ import (
 	"github.com/code19m/errx"
 	"github.com/gofiber/fiber/v2"
 	"github.com/rise-and-shine/pkg/http/server"
-	"github.com/rise-and-shine/pkg/mask"
 	"github.com/rise-and-shine/pkg/meta"
 	"github.com/rise-and-shine/pkg/observability/logger"
 )
@@ -19,7 +18,7 @@ import (
 // method, path, status code, duration, and user context. It also logs errors with
 // detailed information when they occur. The logging level is determined by the
 // HTTP status code (info for 2xx/3xx, warn for 4xx, error for 5xx).
-func NewLoggerMW(debug bool) server.Middleware {
+func NewLoggerMW(hideDetails bool) server.Middleware {
 	return server.Middleware{
 		Priority: 500,
 		Handler: func(c *fiber.Ctx) error {
@@ -27,7 +26,7 @@ func NewLoggerMW(debug bool) server.Middleware {
 			start := time.Now()
 
 			// handle request
-			err := handleWithRecovery(c, debug)
+			err := handleWithRecovery(c, hideDetails)
 
 			statusCode := c.Response().StatusCode()
 
@@ -64,9 +63,6 @@ func NewLoggerMW(debug bool) server.Middleware {
 				"query_params", c.Queries(),
 			)
 
-			// add request, response bodies on debug mode
-			logger = withSafeRequestResponse(c, logger, debug)
-
 			switch {
 			case statusCode >= 500:
 				logger.Errorx(err)
@@ -83,7 +79,7 @@ func NewLoggerMW(debug bool) server.Middleware {
 
 // handleWithRecovery executes the next middleware and recovers from panics.
 // It returns any error from the middleware chain or a new error if a panic occurred.
-func handleWithRecovery(c *fiber.Ctx, debug bool) (err error) {
+func handleWithRecovery(c *fiber.Ctx, hideDetails bool) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			traceSize := 4096 // 4KB
@@ -103,7 +99,7 @@ func handleWithRecovery(c *fiber.Ctx, debug bool) (err error) {
 				return
 			}
 
-			err = server.WriteErrorResponse(c, err, debug)
+			err = server.WriteErrorResponse(c, err, hideDetails)
 		}
 	}()
 
@@ -128,28 +124,6 @@ func withSafeHeaders(c *fiber.Ctx, logger logger.Logger) logger.Logger {
 		if v != "" {
 			logger = logger.With(h, v)
 		}
-	}
-
-	return logger
-}
-
-// withSafeRequestResponse returns a logger with safe to log request and response body.
-func withSafeRequestResponse(c *fiber.Ctx, logger logger.Logger, debug bool) logger.Logger {
-	if !debug {
-		return logger
-	}
-
-	// get request and response body from locals
-	// which should be set by handlers
-	req := c.Locals("request_body")
-	resp := c.Locals("response_body")
-
-	if req != nil {
-		logger = logger.With("request_body", mask.StructToOrdMap(req))
-	}
-
-	if resp != nil {
-		logger = logger.With("response_body", mask.StructToOrdMap(resp))
 	}
 
 	return logger

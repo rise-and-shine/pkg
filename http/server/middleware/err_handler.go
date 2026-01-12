@@ -10,9 +10,9 @@ import (
 // standardized JSON responses.
 //
 // This middleware catches any errors that occur during request processing and
-// transforms them into a consistent JSON format. When debug is true, additional
+// transforms them into a consistent JSON format. When hideDetails is false, additional
 // details like error trace and details are included in the response.
-func NewErrorHandlerMW(debug bool) server.Middleware {
+func NewErrorHandlerMW(hideDetails bool) server.Middleware {
 	return server.Middleware{
 		Priority: 400,
 		Handler: func(c *fiber.Ctx) error {
@@ -26,7 +26,7 @@ func NewErrorHandlerMW(debug bool) server.Middleware {
 				return err
 			}
 
-			return server.WriteErrorResponse(c, err, debug)
+			return server.WriteErrorResponse(c, err, hideDetails)
 		},
 	}
 }

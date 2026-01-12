@@ -14,14 +14,14 @@ const (
 )
 
 // WriteErrorResponse writes a standardized error response to the Fiber context.
-func WriteErrorResponse(c *fiber.Ctx, err error, debug bool) error {
+func WriteErrorResponse(c *fiber.Ctx, err error, hideDetails bool) error {
 	e := mapAnyErrorToErrorX(err)
 	traceID := c.UserContext().Value(meta.TraceID)
 
 	c.Status(mapErrorTypeToHTTPStatusCode(e.Type()))
 	_ = c.JSON(map[string]any{
 		"trace_id": traceID,
-		"error":    buildErrorSchema(e, debug),
+		"error":    buildErrorSchema(e, hideDetails),
 	})
 
 	return e
@@ -30,7 +30,7 @@ func WriteErrorResponse(c *fiber.Ctx, err error, debug bool) error {
 // customErrorHandler returns a Fiber error handler that ensures consistent error responses.
 //
 // If the response status code is already set to an error (>= 400), it does not override it.
-func customErrorHandler(debug bool) fiber.ErrorHandler {
+func customErrorHandler(hideDetails bool) fiber.ErrorHandler {
 	return func(ctx *fiber.Ctx, err error) error {
 		r := ctx.Response()
 
@@ -39,20 +39,20 @@ func customErrorHandler(debug bool) fiber.ErrorHandler {
 			return nil
 		}
 
-		_ = WriteErrorResponse(ctx, err, debug)
+		_ = WriteErrorResponse(ctx, err, hideDetails)
 		return nil
 	}
 }
 
 // buildErrorSchema constructs an error response object from an ErrorX instance.
-// When debug is true, includes trace and details information.
-func buildErrorSchema(e errx.ErrorX, debug bool) errorSchema {
+// When hideDetails is false, includes trace and details information.
+func buildErrorSchema(e errx.ErrorX, hideDetails bool) errorSchema {
 	errResp := errorSchema{
 		Code:    e.Code(),
 		Message: e.Error(),
 		Fields:  e.Fields(),
 	}
-	if debug {
+	if !hideDetails {
 		errResp.Trace = e.Trace()
 		errResp.Details = e.Details()
 	}
