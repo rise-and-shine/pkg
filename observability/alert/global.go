@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"sync"
 	"sync/atomic"
+
+	"github.com/code19m/errx"
 )
 
 //nolint:gochecknoglobals // Global variables are required for the global alert singleton pattern
@@ -43,6 +46,17 @@ func SetGlobal(cfg Config) error {
 	}
 
 	return err
+}
+
+// ShutdownGlobal closes the gRPC connection to the Sentinel service.
+// If the global provider is not a closer, this function does nothing and returns nil.
+func ShutdownGlobal() error {
+	provider := getGlobal()
+	closer, ok := provider.(io.Closer)
+	if !ok {
+		return nil
+	}
+	return errx.Wrap(closer.Close())
 }
 
 // SendError sends an error alert using the global provider.
