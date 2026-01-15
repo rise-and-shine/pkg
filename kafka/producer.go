@@ -20,7 +20,7 @@ type Message struct {
 
 // Producer represents a Kafka producer.
 type Producer struct {
-	cfg          ProducerConfig
+	cfg          BrokerConfig
 	topic        string
 	saramaCfg    *sarama.Config
 	syncProducer sarama.SyncProducer
@@ -29,10 +29,10 @@ type Producer struct {
 // NewProducer creates a new Kafka producer.
 // Uses global service info from meta.SetServiceInfo().
 func NewProducer(
-	cfg ProducerConfig,
+	cfg BrokerConfig,
 	topic string,
 ) (*Producer, error) {
-	saramaCfg, err := cfg.getSaramaConfig()
+	saramaCfg, err := cfg.getSaramaProducerConfig()
 	if err != nil {
 		return nil, errx.Wrap(err)
 	}

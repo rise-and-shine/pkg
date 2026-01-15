@@ -12,8 +12,6 @@ import (
 
 type Consumer struct {
 	cfg           ConsumerConfig
-	topic         string
-	saramaCfg     *sarama.Config
 	logger        logger.Logger
 	consumerGroup sarama.ConsumerGroup
 	handleFn      HandleFunc
@@ -24,25 +22,27 @@ type HandleFunc func(context.Context, *sarama.ConsumerMessage) error
 
 // NewConsumer creates a new kafka consumer.
 func NewConsumer(
-	cfg ConsumerConfig,
-	topic string,
+	brokerConfig BrokerConfig,
+	consumerConfig ConsumerConfig,
 	handleFn HandleFunc,
 ) (*Consumer, error) {
-	saramaCfg, err := cfg.getSaramaConfig()
+	saramaCfg, err := consumerConfig.getSaramaConfig(brokerConfig)
 	if err != nil {
 		return nil, errx.Wrap(err)
 	}
 
 	// create a new consumer group
-	consumerGroup, err := sarama.NewConsumerGroup(strings.Split(cfg.Brokers, ","), cfg.GroupID, saramaCfg)
+	consumerGroup, err := sarama.NewConsumerGroup(
+		strings.Split(brokerConfig.Brokers, ","),
+		consumerConfig.GroupID,
+		saramaCfg,
+	)
 	if err != nil {
 		return nil, errx.Wrap(err)
 	}
 
 	return &Consumer{
-		cfg:           cfg,
-		topic:         topic,
-		saramaCfg:     saramaCfg,
+		cfg:           consumerConfig,
 		logger:        logger.Named("kafka.consumer"),
 		consumerGroup: consumerGroup,
 		handleFn:      handleFn,
@@ -53,7 +53,7 @@ func NewConsumer(
 func (c *Consumer) Start() error {
 	// the main consume loop, parent of the ConsumerClaim() partition consumer loop
 	for {
-		err := c.consumerGroup.Consume(context.Background(), []string{c.topic}, c)
+		err := c.consumerGroup.Consume(context.Background(), []string{c.cfg.Topic}, c)
 		if err != nil {
 			if errors.Is(err, sarama.ErrClosedConsumerGroup) {
 				return nil
