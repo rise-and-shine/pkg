@@ -13,6 +13,9 @@ import (
 	"github.com/rise-and-shine/pkg/ucdef"
 )
 
+// ToEventSubscriber forwards a Kafka message to an event subscriber use case.
+// It handles event decoding from JSON and logging.
+// E is the event type.
 func ToEventSubscriber[E any](uc ucdef.EventSubscriber[E]) kafka.HandleFunc {
 	return func(ctx context.Context, cm *sarama.ConsumerMessage) error {
 		event, err := newEvent[E]()
@@ -26,9 +29,12 @@ func ToEventSubscriber[E any](uc ucdef.EventSubscriber[E]) kafka.HandleFunc {
 		}
 
 		log := logger.
-			Named("kafka.forward.debug_logger").
+			Named("kafka.handler").
 			WithContext(ctx).
-			With("event", mask.StructToOrdMap(event))
+			With(
+				"operation_id", uc.OperationID(),
+				"event", mask.StructToOrdMap(event),
+			)
 
 		err = uc.Handle(ctx, event)
 		if err != nil {
@@ -36,7 +42,7 @@ func ToEventSubscriber[E any](uc ucdef.EventSubscriber[E]) kafka.HandleFunc {
 			return errx.Wrap(err)
 		}
 
-		log.Debug(nil)
+		log.Debug("")
 		return nil
 	}
 }

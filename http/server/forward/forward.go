@@ -2,19 +2,24 @@
 package forward
 
 import (
+	"fmt"
 	"reflect"
 
 	"github.com/code19m/errx"
 	"github.com/gofiber/fiber/v2"
+	"github.com/rise-and-shine/pkg/mask"
+	"github.com/rise-and-shine/pkg/observability/logger"
 	"github.com/rise-and-shine/pkg/ucdef"
 	"github.com/rise-and-shine/pkg/val"
 )
 
-// ToUseCase forwards a request to a use case that returns a response.
+const maxLogAllowedSize = 8 << 10 // 8KB
+
+// ToUserAction forwards a request to a use case that returns a response.
 // It handles request decoding, validation, and response encoding.
 // I is the use case request type.
 // O is the use case response type.
-func ToUseCase[I, O any](uc ucdef.UserAction[I, O]) fiber.Handler {
+func ToUserAction[I, O any](uc ucdef.UserAction[I, O]) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		// Initialize a new request of type T_Req
 		req, err := newRequest[I]()
@@ -47,25 +52,48 @@ func ToUseCase[I, O any](uc ucdef.UserAction[I, O]) fiber.Handler {
 			)
 		}
 
+		log := logger.
+			Named("http.handler").
+			WithContext(c.UserContext()).
+			With("operation_id", uc.OperationID())
+
+		// Include request body in log if it's size is not too large
+		if len(c.Body()) <= maxLogAllowedSize {
+			log = log.With("request_body", mask.StructToOrdMap(req))
+		} else {
+			log = log.With("request_body", fmt.Sprintf("too large for logging: %d bytes", len(c.Body())))
+		}
+
 		// Validate the request schema based on validate tags of the struct
 		err = val.ValidateSchema(req)
 		if err != nil {
+			log.Errorx(err)
 			return errx.Wrap(err)
 		}
 
 		// Execute the use case
 		resp, err := uc.Execute(c.UserContext(), req)
 		if err != nil {
+			log.Errorx(err)
 			return errx.Wrap(err)
 		}
 
-		// Store the request and response in locals for logging
-		c.Locals("request_body", req)
-		c.Locals("response_body", resp)
-
 		// Write the success response
-		err = c.JSON(resp)
-		return errx.Wrap(err)
+		size, err := writeJSON(c, resp)
+		if err != nil {
+			log.Errorx(err)
+			return errx.Wrap(err)
+		}
+
+		// Include response body in log if it's size is not too large
+		if size <= maxLogAllowedSize {
+			log = log.With("response_body", mask.StructToOrdMap(resp))
+		} else {
+			log = log.With("response_body", fmt.Sprintf("too large for logging: %d bytes", size))
+		}
+
+		log.Debug("")
+		return nil
 	}
 }
 
@@ -81,4 +109,15 @@ func newRequest[I any]() (I, error) {
 
 	reqVal := reflect.New(reqType.Elem()).Interface().(I) //nolint:errcheck // safe type assertion
 	return reqVal, nil
+}
+
+func writeJSON(c *fiber.Ctx, data any) (int, error) {
+	raw, err := c.App().Config().JSONEncoder(data)
+	if err != nil {
+		return 0, errx.Wrap(err)
+	}
+
+	c.Response().SetBodyRaw(raw)
+	c.Response().Header.SetContentType(fiber.MIMEApplicationJSON)
+	return len(raw), nil
 }
