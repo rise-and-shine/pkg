@@ -15,11 +15,7 @@ import (
 )
 
 // NewBunDB creates a new Bun database connection with the provided configuration.
-func NewBunDB(cfg Config, opts ...Option) (*bun.DB, error) {
-	for _, opt := range opts {
-		opt(&cfg)
-	}
-
+func NewBunDB(cfg Config) (*bun.DB, error) {
 	pool, err := NewPool(cfg)
 	if err != nil {
 		return nil, errx.Wrap(err)
@@ -28,7 +24,7 @@ func NewBunDB(cfg Config, opts ...Option) (*bun.DB, error) {
 	sqldb := stdlib.OpenDBFromPool(pool)
 
 	bunDB := bun.NewDB(sqldb, pgdialect.New())
-	applyHooks(bunDB, cfg.verbose)
+	applyHooks(bunDB, cfg.Verbose)
 
 	return bunDB, nil
 }
@@ -52,11 +48,3 @@ func applyHooks(db *bun.DB, verbose bool) {
 	// Add OpenTelemetry hook
 	db.AddQueryHook(bunotel.NewQueryHook())
 }
-
-func WithVerbose() Option {
-	return func(c *Config) {
-		c.verbose = true
-	}
-}
-
-type Option func(*Config)
