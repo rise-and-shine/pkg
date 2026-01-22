@@ -14,6 +14,7 @@ import (
 	"github.com/rise-and-shine/pkg/observability/alert"
 	"github.com/rise-and-shine/pkg/observability/logger"
 	"github.com/rise-and-shine/pkg/observability/tracing"
+	"github.com/rise-and-shine/pkg/pg/hooks"
 	"github.com/rise-and-shine/pkg/taskmill/internal/config"
 	"github.com/rise-and-shine/pkg/taskmill/internal/pgqueue"
 	"github.com/rise-and-shine/pkg/ucdef"
@@ -149,7 +150,7 @@ func (w *worker) workerLoop(ctx context.Context) {
 			return
 
 		default:
-			tasks, err := w.dequeueTasks(ctx)
+			tasks, err := w.dequeueTasks(hooks.WithSuppressedQueryLogs(hooks.WithSuppressedQueryLogs(ctx)))
 			if err != nil {
 				w.logger.With("error", err).Error("[worker]: failed to dequeue tasks")
 				time.Sleep(w.pollInterval)

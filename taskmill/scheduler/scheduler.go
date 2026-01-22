@@ -7,6 +7,7 @@ import (
 
 	"github.com/code19m/errx"
 	"github.com/rise-and-shine/pkg/observability/logger"
+	"github.com/rise-and-shine/pkg/pg/hooks"
 	"github.com/rise-and-shine/pkg/taskmill/enqueuer"
 	"github.com/rise-and-shine/pkg/taskmill/internal/config"
 	"github.com/rise-and-shine/pkg/taskmill/internal/pgqueue"
@@ -179,7 +180,7 @@ func (s *scheduler) Stop() error {
 func (s *scheduler) checkSchedules(ctx context.Context) {
 	// Process due schedules one at a time within transactions
 	for {
-		processed, err := s.processOneSchedule(ctx)
+		processed, err := s.processOneSchedule(hooks.WithSuppressedQueryLogs(ctx))
 		if err != nil {
 			s.logger.With("error", err).Error("[scheduler]: failed to process schedule")
 			return

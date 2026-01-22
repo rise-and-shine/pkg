@@ -11,6 +11,14 @@ import (
 	"github.com/uptrace/bun"
 )
 
+type suppressQueryLogsCtxKey struct{}
+
+// WithSuppressedQueryLogs creates a new context with suppressed query logs.
+// Queries will not be logged in this context.
+func WithSuppressedQueryLogs(ctx context.Context) context.Context {
+	return context.WithValue(ctx, suppressQueryLogsCtxKey{}, struct{}{})
+}
+
 // Verify that DebugHook implements bun.QueryHook interface at compile time.
 var _ bun.QueryHook = (*DebugHook)(nil)
 
@@ -54,6 +62,11 @@ func (h *DebugHook) BeforeQuery(ctx context.Context, _ *bun.QueryEvent) context.
 // AfterQuery implements bun.QueryHook interface.
 // It is called after query execution and logs the query with appropriate detail level.
 func (h *DebugHook) AfterQuery(ctx context.Context, event *bun.QueryEvent) {
+	// Skip if suppressed
+	if ctx.Value(suppressQueryLogsCtxKey{}) != nil {
+		return
+	}
+
 	// Calculate query duration
 	duration := time.Since(event.StartTime)
 
@@ -85,9 +98,7 @@ func (h *DebugHook) AfterQuery(ctx context.Context, event *bun.QueryEvent) {
 	// Log at appropriate level
 	switch {
 	case hasError:
-		logEntry.With("error", event.Err).Error("[bun-debug] - " + operation)
-	case isNoRowsError:
-		logEntry.With("error", event.Err).Warn("[bun-debug] - " + operation)
+		logEntry.With("db_error", event.Err).Error("[bun-debug] - " + operation)
 	case isSlow:
 		logEntry.Warn("[bun-debug] - " + operation)
 	default:
