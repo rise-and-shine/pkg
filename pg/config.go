@@ -7,9 +7,6 @@ import (
 
 // Config defines the configuration options for PostgreSQL connections.
 type Config struct {
-	// Debug enables SQL query logging when set to true.
-	Debug bool `yaml:"debug" default:"false"`
-
 	// Host specifies the PostgreSQL server hostname or IP address.
 	Host string `yaml:"host" validate:"required"`
 
@@ -46,6 +43,9 @@ type Config struct {
 
 	// PoolMaxConnIdleTime specifies how long a connection can remain idle in the pool.
 	PoolMaxConnIdleTime time.Duration `yaml:"pool_max_conn_idle_time" default:"30m"`
+
+	// verbose enables all SQL queries to be logged. Defaults to false.
+	verbose bool
 }
 
 // dsn returns a PostgreSQL connection string built from the configuration.

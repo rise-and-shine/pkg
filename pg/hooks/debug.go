@@ -17,8 +17,6 @@ var _ bun.QueryHook = (*DebugHook)(nil)
 // DebugHook is a custom Bun query hook that integrates with the rise-and-shine logger.
 // It logs database queries with configurable verbosity and slow query detection.
 type DebugHook struct {
-	enabled            bool
-	verbose            bool
 	slowQueryThreshold time.Duration
 }
 
@@ -29,8 +27,6 @@ type DebugHookOption func(*DebugHook)
 // By default, the hook is enabled, verbose mode is on, and slow query threshold is 100ms.
 func NewDebugHook(opts ...DebugHookOption) *DebugHook {
 	hook := &DebugHook{
-		enabled:            true,
-		verbose:            true,
 		slowQueryThreshold: 100 * time.Millisecond,
 	}
 
@@ -39,23 +35,6 @@ func NewDebugHook(opts ...DebugHookOption) *DebugHook {
 	}
 
 	return hook
-}
-
-// WithEnabled sets whether the query hook is enabled.
-// When disabled, no queries will be logged.
-func WithEnabled(enabled bool) DebugHookOption {
-	return func(h *DebugHook) {
-		h.enabled = enabled
-	}
-}
-
-// WithVerbose sets whether to log all queries or only failures and warnings.
-// When verbose=true: logs all queries at debug level, errors at error level, warnings at warn level.
-// When verbose=false: logs only errors and warnings (failed queries, no rows, slow queries).
-func WithVerbose(verbose bool) DebugHookOption {
-	return func(h *DebugHook) {
-		h.verbose = verbose
-	}
 }
 
 // WithSlowQueryThreshold sets the duration threshold for logging slow queries at warn level.
@@ -75,11 +54,6 @@ func (h *DebugHook) BeforeQuery(ctx context.Context, _ *bun.QueryEvent) context.
 // AfterQuery implements bun.QueryHook interface.
 // It is called after query execution and logs the query with appropriate detail level.
 func (h *DebugHook) AfterQuery(ctx context.Context, event *bun.QueryEvent) {
-	// Early return if hook is disabled
-	if !h.enabled {
-		return
-	}
-
 	// Calculate query duration
 	duration := time.Since(event.StartTime)
 
@@ -93,11 +67,6 @@ func (h *DebugHook) AfterQuery(ctx context.Context, event *bun.QueryEvent) {
 
 	// Check if query is slow
 	isSlow := h.slowQueryThreshold > 0 && duration >= h.slowQueryThreshold
-
-	// Skip logging successful queries if not in verbose mode
-	if !h.verbose && !hasError && !isNoRowsError && !isSlow {
-		return
-	}
 
 	// Build logger with structured fields
 	logEntry := logger.Named("bun_debug_hook").
@@ -121,7 +90,7 @@ func (h *DebugHook) AfterQuery(ctx context.Context, event *bun.QueryEvent) {
 		logEntry.With("error", event.Err).Warn("[bun-debug] - " + operation)
 	case isSlow:
 		logEntry.Warn("[bun-debug] - " + operation)
-	case h.verbose:
+	default:
 		logEntry.Debug("[bun-debug] - " + operation)
 	}
 }

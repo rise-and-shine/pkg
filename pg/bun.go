@@ -15,7 +15,11 @@ import (
 )
 
 // NewBunDB creates a new Bun database connection with the provided configuration.
-func NewBunDB(cfg Config) (*bun.DB, error) {
+func NewBunDB(cfg Config, opts ...Option) (*bun.DB, error) {
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
 	pool, err := NewPool(cfg)
 	if err != nil {
 		return nil, errx.Wrap(err)
@@ -24,7 +28,7 @@ func NewBunDB(cfg Config) (*bun.DB, error) {
 	sqldb := stdlib.OpenDBFromPool(pool)
 
 	bunDB := bun.NewDB(sqldb, pgdialect.New())
-	applyHooks(bunDB, cfg.Debug)
+	applyHooks(bunDB, cfg.verbose)
 
 	return bunDB, nil
 }
@@ -37,15 +41,22 @@ func NewBunDB(cfg Config) (*bun.DB, error) {
 //
 // The query logging hook will only be active when debug=true, while the OpenTelemetry
 // hook is always enabled.
-func applyHooks(db *bun.DB, debug bool) {
+func applyHooks(db *bun.DB, verbose bool) {
 	// Add custom query logging hook
-	db.AddQueryHook(
-		hooks.NewDebugHook(
-			hooks.WithEnabled(debug),
-			hooks.WithVerbose(true),
-		),
-	)
+	if verbose {
+		db.AddQueryHook(
+			hooks.NewDebugHook(),
+		)
+	}
 
 	// Add OpenTelemetry hook
 	db.AddQueryHook(bunotel.NewQueryHook())
 }
+
+func WithVerbose() Option {
+	return func(c *Config) {
+		c.verbose = true
+	}
+}
+
+type Option func(*Config)
