@@ -143,6 +143,67 @@ type CleanupResultsParams struct {
 	QueueName *string
 }
 
+// ListDLQTasksParams contains parameters for listing DLQ tasks.
+type ListDLQTasksParams struct {
+	// QueueName filters by queue (optional).
+	QueueName *string
+
+	// OperationID filters by operation (optional).
+	OperationID *string
+
+	// DLQAfter filters tasks moved to DLQ after this time (optional).
+	DLQAfter *time.Time
+
+	// DLQBefore filters tasks moved to DLQ before this time (optional).
+	DLQBefore *time.Time
+
+	// Limit is the maximum number of tasks to return.
+	// Default: 100, Max: 1000.
+	Limit int
+
+	// Offset is the pagination offset.
+	Offset int
+}
+
+// DLQTask represents a task in the dead letter queue.
+type DLQTask struct {
+	// ID is the unique identifier for the task.
+	ID int64 `bun:"id"`
+
+	// QueueName identifies which queue this task belongs to.
+	QueueName string `bun:"queue_name"`
+
+	// TaskGroupID enables FIFO ordering within a group.
+	TaskGroupID *string `bun:"task_group_id"`
+
+	// OperationID identifies which handler should process this task.
+	OperationID string `bun:"operation_id"`
+
+	// Payload contains the business data as JSONB.
+	Payload any `bun:"payload,type:jsonb"`
+
+	// Priority determines processing order.
+	Priority int `bun:"priority"`
+
+	// Attempts tracks how many times this task has been dequeued.
+	Attempts int `bun:"attempts"`
+
+	// MaxAttempts defines the maximum retry attempts.
+	MaxAttempts int `bun:"max_attempts"`
+
+	// IdempotencyKey is used for idempotency.
+	IdempotencyKey string `bun:"idempotency_key"`
+
+	// CreatedAt stores when the task was originally enqueued.
+	CreatedAt time.Time `bun:"created_at"`
+
+	// DLQAt indicates when the task was moved to the dead letter queue.
+	DLQAt time.Time `bun:"dlq_at"`
+
+	// DLQReason contains structured error information.
+	DLQReason map[string]any `bun:"dlq_reason,type:jsonb"`
+}
+
 // TaskSchedule represents a cron-based schedule stored in the database.
 type TaskSchedule struct {
 	// ID is the unique identifier for the schedule.

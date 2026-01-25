@@ -71,6 +71,9 @@ type Queue interface {
 	// CleanupResults deletes old task results and returns the number of deleted rows.
 	CleanupResults(ctx context.Context, db bun.IDB, params CleanupResultsParams) (int64, error)
 
+	// ListDLQTasks queries tasks in the dead letter queue with optional filters.
+	ListDLQTasks(ctx context.Context, db bun.IDB, params ListDLQTasksParams) ([]DLQTask, error)
+
 	// Migrate auto creates the queue schema and tables if they don't exist.
 	Migrate(ctx context.Context, db bun.IDB, schema string) error
 

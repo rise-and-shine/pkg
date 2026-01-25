@@ -126,6 +126,11 @@ func (q *queue) CleanupResults(ctx context.Context, db bun.IDB, params CleanupRe
 	return q.cleanupTaskResults(ctx, db, params)
 }
 
+// ListDLQTasks queries tasks in the dead letter queue with optional filters.
+func (q *queue) ListDLQTasks(ctx context.Context, db bun.IDB, params ListDLQTasksParams) ([]DLQTask, error) {
+	return q.listDLQTasks(ctx, db, params)
+}
+
 // Schedule operations
 
 // UpsertSchedule inserts or updates a schedule.

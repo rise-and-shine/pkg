@@ -47,6 +47,9 @@ type Console interface {
 
 	// CleanupResults deletes old task results. Returns count of deleted records.
 	CleanupResults(ctx context.Context, params CleanupResultsParams) (int64, error)
+
+	// ListDLQTasks queries tasks in the dead letter queue with filtering.
+	ListDLQTasks(ctx context.Context, params ListDLQTasksParams) ([]DLQTask, error)
 }
 
 // New creates a new Console instance.
@@ -155,6 +158,7 @@ func (c *console) TriggerSchedule(ctx context.Context, operationID string, opts 
 	return nil
 }
 
+//nolint:dupl // Similar adapter pattern to ListDLQTasks but different types
 func (c *console) ListResults(ctx context.Context, params ListResultsParams) ([]TaskResult, error) {
 	pgParams := pgqueue.ListResultsParams{
 		QueueName:       params.QueueName,
@@ -203,4 +207,41 @@ func (c *console) CleanupResults(ctx context.Context, params CleanupResultsParam
 	}
 
 	return count, nil
+}
+
+//nolint:dupl // Similar adapter pattern to ListResults but different types
+func (c *console) ListDLQTasks(ctx context.Context, params ListDLQTasksParams) ([]DLQTask, error) {
+	pgParams := pgqueue.ListDLQTasksParams{
+		QueueName:   params.QueueName,
+		OperationID: params.OperationID,
+		DLQAfter:    params.DLQAfter,
+		DLQBefore:   params.DLQBefore,
+		Limit:       params.Limit,
+		Offset:      params.Offset,
+	}
+
+	dbTasks, err := c.queue.ListDLQTasks(ctx, c.db, pgParams)
+	if err != nil {
+		return nil, errx.Wrap(err)
+	}
+
+	tasks := make([]DLQTask, len(dbTasks))
+	for i, t := range dbTasks {
+		tasks[i] = DLQTask{
+			ID:             t.ID,
+			QueueName:      t.QueueName,
+			TaskGroupID:    t.TaskGroupID,
+			OperationID:    t.OperationID,
+			Payload:        t.Payload,
+			Priority:       t.Priority,
+			Attempts:       t.Attempts,
+			MaxAttempts:    t.MaxAttempts,
+			IdempotencyKey: t.IdempotencyKey,
+			CreatedAt:      t.CreatedAt,
+			DLQAt:          t.DLQAt,
+			DLQReason:      t.DLQReason,
+		}
+	}
+
+	return tasks, nil
 }

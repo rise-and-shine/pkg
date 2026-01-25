@@ -441,6 +441,68 @@ func (q *queue) cleanupTaskResults(ctx context.Context, db bun.IDB, params Clean
 	return rowsAffected, nil
 }
 
+// listDLQTasks queries tasks in the dead letter queue with optional filters.
+func (q *queue) listDLQTasks(ctx context.Context, db bun.IDB, params ListDLQTasksParams) ([]DLQTask, error) {
+	// Apply defaults
+	limit := params.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
+
+	// Build query with optional filters
+	var conditions []string
+	var args []any
+
+	// Always filter for DLQ tasks
+	conditions = append(conditions, "dlq_at IS NOT NULL")
+
+	if params.QueueName != nil {
+		conditions = append(conditions, "queue_name = ?")
+		args = append(args, *params.QueueName)
+	}
+
+	if params.OperationID != nil {
+		conditions = append(conditions, "operation_id = ?")
+		args = append(args, *params.OperationID)
+	}
+
+	if params.DLQAfter != nil {
+		conditions = append(conditions, "dlq_at >= ?")
+		args = append(args, *params.DLQAfter)
+	}
+
+	if params.DLQBefore != nil {
+		conditions = append(conditions, "dlq_at < ?")
+		args = append(args, *params.DLQBefore)
+	}
+
+	whereClause := "WHERE " + strings.Join(conditions, " AND ")
+
+	query := fmt.Sprintf(`
+		SELECT id, queue_name, task_group_id, operation_id, payload,
+		       priority, attempts, max_attempts, idempotency_key,
+		       created_at, dlq_at, dlq_reason
+		FROM %s
+		%s
+		ORDER BY dlq_at DESC
+		LIMIT ?
+		OFFSET ?
+	`, q.tableName(), whereClause)
+
+	args = append(args, limit, params.Offset)
+
+	var tasks []DLQTask
+	_, err := db.NewRaw(query, args...).Exec(ctx, &tasks)
+	if err != nil {
+		return nil, errx.Wrap(err)
+	}
+
+	return tasks, nil
+}
+
 // upsertSchedule inserts or updates a schedule.
 func (q *queue) upsertSchedule(ctx context.Context, db bun.IDB, schedule TaskSchedule) error {
 	query := fmt.Sprintf(`

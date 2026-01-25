@@ -128,3 +128,64 @@ type CleanupResultsParams struct {
 	// QueueName filters cleanup to a specific queue (optional).
 	QueueName *string
 }
+
+// ListDLQTasksParams contains parameters for listing DLQ tasks.
+type ListDLQTasksParams struct {
+	// QueueName filters by queue (optional).
+	QueueName *string
+
+	// OperationID filters by operation (optional).
+	OperationID *string
+
+	// DLQAfter filters tasks moved to DLQ after this time (optional).
+	DLQAfter *time.Time
+
+	// DLQBefore filters tasks moved to DLQ before this time (optional).
+	DLQBefore *time.Time
+
+	// Limit is the maximum number of tasks to return.
+	// Default: 100, Max: 1000.
+	Limit int
+
+	// Offset is the pagination offset.
+	Offset int
+}
+
+// DLQTask represents a task in the dead letter queue.
+type DLQTask struct {
+	// ID is the unique identifier for the task.
+	ID int64
+
+	// QueueName identifies which queue this task belongs to.
+	QueueName string
+
+	// TaskGroupID enables FIFO ordering within a group.
+	TaskGroupID *string
+
+	// OperationID identifies which handler should process this task.
+	OperationID string
+
+	// Payload contains the business data.
+	Payload any
+
+	// Priority determines processing order.
+	Priority int
+
+	// Attempts tracks how many times this task has been dequeued.
+	Attempts int
+
+	// MaxAttempts defines the maximum retry attempts.
+	MaxAttempts int
+
+	// IdempotencyKey is used for idempotency.
+	IdempotencyKey string
+
+	// CreatedAt stores when the task was originally enqueued.
+	CreatedAt time.Time
+
+	// DLQAt indicates when the task was moved to the dead letter queue.
+	DLQAt time.Time
+
+	// DLQReason contains structured error information.
+	DLQReason map[string]any
+}
