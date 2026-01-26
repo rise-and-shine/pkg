@@ -52,7 +52,7 @@ func newEvent[E any]() (E, error) {
 
 	reqType := reflect.TypeOf((*E)(nil)).Elem()
 	if reqType.Kind() != reflect.Pointer || reqType.Elem().Kind() != reflect.Struct {
-		return req, errx.New("input type I must be a pointer")
+		return req, errx.New("event type I must be a pointer")
 	}
 
 	reqVal := reflect.New(reqType.Elem()).Interface().(E) //nolint:errcheck // safe type assertion
