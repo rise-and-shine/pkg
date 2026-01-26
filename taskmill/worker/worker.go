@@ -153,13 +153,29 @@ func (w *worker) workerLoop(ctx context.Context) {
 			tasks, err := w.dequeueTasks(hooks.WithSuppressedQueryLogs(hooks.WithSuppressedQueryLogs(ctx)))
 			if err != nil {
 				w.logger.With("error", err).Error("[worker]: failed to dequeue tasks")
-				time.Sleep(w.pollInterval)
-				continue
+				select {
+				case <-ctx.Done():
+					return
+
+				case <-w.stopCh:
+					return
+
+				case <-time.After(w.pollInterval):
+					continue
+				}
 			}
 
 			if len(tasks) == 0 {
-				time.Sleep(w.pollInterval)
-				continue
+				select {
+				case <-ctx.Done():
+					return
+
+				case <-w.stopCh:
+					return
+
+				case <-time.After(w.pollInterval):
+					continue
+				}
 			}
 
 			for _, task := range tasks {
