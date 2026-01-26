@@ -13,6 +13,7 @@ import (
 type PgReadOnlyRepo[E any, F any] struct {
 	idb          bun.IDB
 	entityName   string
+	schemaName   string
 	notFoundCode string
 
 	filterFunc func(q *bun.SelectQuery, filters F) *bun.SelectQuery
@@ -21,12 +22,14 @@ type PgReadOnlyRepo[E any, F any] struct {
 func NewPgReadOnlyRepo[E any, F any](
 	idb bun.IDB,
 	entityName string,
+	schemaName string,
 	notFoundCode string,
 	filterFunc func(q *bun.SelectQuery, filters F) *bun.SelectQuery,
 ) *PgReadOnlyRepo[E, F] {
 	return &PgReadOnlyRepo[E, F]{
 		idb:          idb,
 		entityName:   entityName,
+		schemaName:   schemaName,
 		notFoundCode: notFoundCode,
 		filterFunc:   filterFunc,
 	}
@@ -35,6 +38,7 @@ func NewPgReadOnlyRepo[E any, F any](
 func (r *PgReadOnlyRepo[E, F]) Get(ctx context.Context, filters F) (*E, error) {
 	var entities = make([]E, 0)
 	q := r.idb.NewSelect().Model(&entities).Limit(2) //nolint:mnd // limit 2 to check for multiple rows
+	q = r.applyModelTableExpr(q)
 	q = r.filterFunc(q, filters)
 
 	err := q.Scan(ctx)
@@ -64,6 +68,7 @@ func (r *PgReadOnlyRepo[E, F]) Get(ctx context.Context, filters F) (*E, error) {
 func (r *PgReadOnlyRepo[E, F]) List(ctx context.Context, filters F) ([]E, error) {
 	var entities = make([]E, 0)
 	q := r.idb.NewSelect().Model(&entities)
+	q = r.applyModelTableExpr(q)
 	q = r.filterFunc(q, filters)
 
 	err := q.Scan(ctx)
@@ -76,6 +81,7 @@ func (r *PgReadOnlyRepo[E, F]) List(ctx context.Context, filters F) ([]E, error)
 
 func (r *PgReadOnlyRepo[E, F]) Count(ctx context.Context, filters F) (int, error) {
 	q := r.idb.NewSelect().Model((*E)(nil))
+	q = r.applyModelTableExpr(q)
 	q = r.filterFunc(q, filters)
 	q = q.Offset(0).Limit(0)
 
@@ -90,6 +96,7 @@ func (r *PgReadOnlyRepo[E, F]) Count(ctx context.Context, filters F) (int, error
 func (r *PgReadOnlyRepo[E, F]) ListWithCount(ctx context.Context, filters F) ([]E, int, error) {
 	var entities = make([]E, 0)
 	q := r.idb.NewSelect().Model(&entities)
+	q = r.applyModelTableExpr(q)
 	q = r.filterFunc(q, filters)
 
 	err := q.Scan(ctx)
@@ -109,6 +116,7 @@ func (r *PgReadOnlyRepo[E, F]) ListWithCount(ctx context.Context, filters F) ([]
 func (r *PgReadOnlyRepo[E, F]) FirstOrNil(ctx context.Context, filters F) (*E, error) {
 	var entities = make([]E, 0)
 	q := r.idb.NewSelect().Model(&entities).Limit(1)
+	q = r.applyModelTableExpr(q)
 	q = r.filterFunc(q, filters)
 
 	err := q.Scan(ctx)
@@ -125,6 +133,7 @@ func (r *PgReadOnlyRepo[E, F]) FirstOrNil(ctx context.Context, filters F) (*E, e
 
 func (r *PgReadOnlyRepo[E, F]) Exists(ctx context.Context, filters F) (bool, error) {
 	q := r.idb.NewSelect().Model((*E)(nil))
+	q = r.applyModelTableExpr(q)
 	q = r.filterFunc(q, filters)
 
 	exists, err := q.Exists(ctx)
@@ -133,4 +142,9 @@ func (r *PgReadOnlyRepo[E, F]) Exists(ctx context.Context, filters F) (bool, err
 	}
 
 	return exists, nil
+}
+
+func (r *PgReadOnlyRepo[E, F]) applyModelTableExpr(q *bun.SelectQuery) *bun.SelectQuery {
+	table := q.GetModel().(bun.TableModel).Table() //nolint:errcheck // table name is always available
+	return q.ModelTableExpr("?.? AS ?", bun.Ident(r.schemaName), bun.Ident(table.Name), bun.Ident(table.Alias))
 }

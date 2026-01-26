@@ -27,11 +27,12 @@ type PgRepo[E any, F any] struct {
 func NewPgRepo[E any, F any](
 	idb bun.IDB,
 	entityName string,
+	schemaName string,
 	notFoundCode string,
 	conflictCodesMap map[string]string,
 	filterFunc func(q *bun.SelectQuery, filters F) *bun.SelectQuery,
 ) *PgRepo[E, F] {
-	roRepo := NewPgReadOnlyRepo[E](idb, entityName, notFoundCode, filterFunc)
+	roRepo := NewPgReadOnlyRepo[E](idb, entityName, schemaName, notFoundCode, filterFunc)
 
 	return &PgRepo[E, F]{
 		PgReadOnlyRepo:   roRepo,
@@ -41,6 +42,7 @@ func NewPgRepo[E any, F any](
 
 func (r *PgRepo[E, F]) Create(ctx context.Context, entity *E) (*E, error) {
 	q := r.idb.NewInsert().Model(entity).Returning("*")
+	q = r.applyInsertModelTableExpr(q)
 	_, err := q.Exec(ctx)
 	if err != nil {
 		if code, exists := r.conflictCodesMap[pg.ConstraintName(err)]; exists {
@@ -58,6 +60,7 @@ func (r *PgRepo[E, F]) Create(ctx context.Context, entity *E) (*E, error) {
 
 func (r *PgRepo[E, F]) Update(ctx context.Context, entity *E) (*E, error) {
 	q := r.idb.NewUpdate().Model(entity).WherePK().Returning("*")
+	q = r.applyUpdateModelTableExpr(q)
 	result, err := q.Exec(ctx)
 	if err != nil {
 		if code, exists := r.conflictCodesMap[pg.ConstraintName(err)]; exists {
@@ -88,6 +91,7 @@ func (r *PgRepo[E, F]) Update(ctx context.Context, entity *E) (*E, error) {
 
 func (r *PgRepo[E, F]) Delete(ctx context.Context, entity *E) error {
 	q := r.idb.NewDelete().Model(entity).WherePK()
+	q = r.applyDeleteModelTableExpr(q)
 	result, err := q.Exec(ctx)
 	if err != nil {
 		return errx.Wrap(err, errx.WithDetails(pg.GetPgErrorDetails(err, q)))
@@ -111,6 +115,7 @@ func (r *PgRepo[E, F]) Delete(ctx context.Context, entity *E) error {
 
 func (r *PgRepo[E, F]) BulkCreate(ctx context.Context, entities []E) error {
 	q := r.idb.NewInsert().Model(&entities)
+	q = r.applyInsertModelTableExpr(q)
 	_, err := q.Exec(ctx)
 	if err != nil {
 		if len(entities) > largeBulkSize {
@@ -131,6 +136,7 @@ func (r *PgRepo[E, F]) BulkCreate(ctx context.Context, entities []E) error {
 
 func (r *PgRepo[E, F]) BulkUpdate(ctx context.Context, entities []E) error {
 	q := r.idb.NewUpdate().Model(&entities).Bulk()
+	q = r.applyUpdateModelTableExpr(q)
 	result, err := q.Exec(ctx)
 	if err != nil {
 		if len(entities) > largeBulkSize {
@@ -167,6 +173,7 @@ func (r *PgRepo[E, F]) BulkUpdate(ctx context.Context, entities []E) error {
 
 func (r *PgRepo[E, F]) BulkDelete(ctx context.Context, entities []E) error {
 	q := r.idb.NewDelete().Model(&entities).WherePK()
+	q = r.applyDeleteModelTableExpr(q)
 	result, err := q.Exec(ctx)
 	if err != nil {
 		if len(entities) > largeBulkSize {
@@ -192,4 +199,19 @@ func (r *PgRepo[E, F]) BulkDelete(ctx context.Context, entities []E) error {
 	}
 
 	return nil
+}
+
+func (r *PgRepo[E, F]) applyInsertModelTableExpr(q *bun.InsertQuery) *bun.InsertQuery {
+	table := q.GetModel().(bun.TableModel).Table() //nolint:errcheck // table name is always available
+	return q.ModelTableExpr("?.? AS ?", bun.Ident(r.schemaName), bun.Ident(table.Name), bun.Ident(table.Alias))
+}
+
+func (r *PgRepo[E, F]) applyUpdateModelTableExpr(q *bun.UpdateQuery) *bun.UpdateQuery {
+	table := q.GetModel().(bun.TableModel).Table() //nolint:errcheck // table name is always available
+	return q.ModelTableExpr("?.? AS ?", bun.Ident(r.schemaName), bun.Ident(table.Name), bun.Ident(table.Alias))
+}
+
+func (r *PgRepo[E, F]) applyDeleteModelTableExpr(q *bun.DeleteQuery) *bun.DeleteQuery {
+	table := q.GetModel().(bun.TableModel).Table() //nolint:errcheck // table name is always available
+	return q.ModelTableExpr("?.? AS ?", bun.Ident(r.schemaName), bun.Ident(table.Name), bun.Ident(table.Alias))
 }
