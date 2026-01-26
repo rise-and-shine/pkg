@@ -26,13 +26,12 @@ type PgRepo[E any, F any] struct {
 
 func NewPgRepo[E any, F any](
 	idb bun.IDB,
-	entityName string,
 	schemaName string,
 	notFoundCode string,
 	conflictCodesMap map[string]string,
 	filterFunc func(q *bun.SelectQuery, filters F) *bun.SelectQuery,
 ) *PgRepo[E, F] {
-	roRepo := NewPgReadOnlyRepo[E](idb, entityName, schemaName, notFoundCode, filterFunc)
+	roRepo := NewPgReadOnlyRepo[E](idb, schemaName, notFoundCode, filterFunc)
 
 	return &PgRepo[E, F]{
 		PgReadOnlyRepo:   roRepo,
@@ -47,7 +46,7 @@ func (r *PgRepo[E, F]) Create(ctx context.Context, entity *E) (*E, error) {
 	if err != nil {
 		if code, exists := r.conflictCodesMap[pg.ConstraintName(err)]; exists {
 			return nil, errx.New(
-				fmt.Sprintf("conflict while creating %s", r.entityName),
+				fmt.Sprintf("conflict while creating %s", nameOf(new(E))),
 				errx.WithCode(code),
 				errx.WithDetails(pg.GetPgErrorDetails(err, q)),
 			)
@@ -65,7 +64,7 @@ func (r *PgRepo[E, F]) Update(ctx context.Context, entity *E) (*E, error) {
 	if err != nil {
 		if code, exists := r.conflictCodesMap[pg.ConstraintName(err)]; exists {
 			return nil, errx.New(
-				fmt.Sprintf("conflict while updating %s", r.entityName),
+				fmt.Sprintf("conflict while updating %s", nameOf(new(E))),
 				errx.WithCode(code),
 				errx.WithDetails(pg.GetPgErrorDetails(err, q)),
 			)
@@ -80,7 +79,7 @@ func (r *PgRepo[E, F]) Update(ctx context.Context, entity *E) (*E, error) {
 
 	if rowsAffected == 0 {
 		return nil, errx.New(
-			fmt.Sprintf("no %s found to update", r.entityName),
+			fmt.Sprintf("no %s found to update", nameOf(new(E))),
 			errx.WithCode(codeIncorrectRowsAffection),
 			errx.WithDetails(pg.GetPgErrorDetails(err, q)),
 		)
@@ -104,7 +103,7 @@ func (r *PgRepo[E, F]) Delete(ctx context.Context, entity *E) error {
 
 	if rowsAffected == 0 {
 		return errx.New(
-			fmt.Sprintf("no %s found to delete", r.entityName),
+			fmt.Sprintf("no %s found to delete", nameOf(new(E))),
 			errx.WithCode(codeIncorrectRowsAffection),
 			errx.WithDetails(pg.GetPgErrorDetails(err, q)),
 		)
@@ -123,7 +122,7 @@ func (r *PgRepo[E, F]) BulkCreate(ctx context.Context, entities []E) error {
 		}
 		if code, exists := r.conflictCodesMap[pg.ConstraintName(err)]; exists {
 			return errx.New(
-				fmt.Sprintf("conflict while bulk creating %s", r.entityName),
+				fmt.Sprintf("conflict while bulk creating %s", nameOf(new(E))),
 				errx.WithCode(code),
 				errx.WithDetails(pg.GetPgErrorDetails(err, q)),
 			)
@@ -144,7 +143,7 @@ func (r *PgRepo[E, F]) BulkUpdate(ctx context.Context, entities []E) error {
 		}
 		if code, exists := r.conflictCodesMap[pg.ConstraintName(err)]; exists {
 			return errx.New(
-				fmt.Sprintf("conflict while bulk updating %s", r.entityName),
+				fmt.Sprintf("conflict while bulk updating %s", nameOf(new(E))),
 				errx.WithCode(code),
 				errx.WithDetails(pg.GetPgErrorDetails(err, q)),
 			)
@@ -162,7 +161,7 @@ func (r *PgRepo[E, F]) BulkUpdate(ctx context.Context, entities []E) error {
 			q = nil // Set q to nil to avoid huge log size in large updates
 		}
 		return errx.New(
-			fmt.Sprintf("not all %s were updated", r.entityName),
+			fmt.Sprintf("not all %s were updated", nameOf(new(E))),
 			errx.WithCode(codeIncorrectRowsAffection),
 			errx.WithDetails(pg.GetPgErrorDetails(err, q)),
 		)
@@ -192,7 +191,7 @@ func (r *PgRepo[E, F]) BulkDelete(ctx context.Context, entities []E) error {
 			q = nil // Set q to nil to avoid huge log size in large deletes
 		}
 		return errx.New(
-			fmt.Sprintf("not all %s were deleted", r.entityName),
+			fmt.Sprintf("not all %s were deleted", nameOf(new(E))),
 			errx.WithCode(codeIncorrectRowsAffection),
 			errx.WithDetails(pg.GetPgErrorDetails(err, q)),
 		)

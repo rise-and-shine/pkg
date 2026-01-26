@@ -3,6 +3,7 @@ package repogen
 import (
 	"context"
 	"fmt"
+	"reflect"
 
 	"github.com/code19m/errx"
 	"github.com/rise-and-shine/pkg/pg"
@@ -12,7 +13,6 @@ import (
 // PgReadOnlyRepo provides read-only access to a PostgreSQL database using bun ORM.
 type PgReadOnlyRepo[E any, F any] struct {
 	idb          bun.IDB
-	entityName   string
 	schemaName   string
 	notFoundCode string
 
@@ -21,14 +21,12 @@ type PgReadOnlyRepo[E any, F any] struct {
 
 func NewPgReadOnlyRepo[E any, F any](
 	idb bun.IDB,
-	entityName string,
 	schemaName string,
 	notFoundCode string,
 	filterFunc func(q *bun.SelectQuery, filters F) *bun.SelectQuery,
 ) *PgReadOnlyRepo[E, F] {
 	return &PgReadOnlyRepo[E, F]{
 		idb:          idb,
-		entityName:   entityName,
 		schemaName:   schemaName,
 		notFoundCode: notFoundCode,
 		filterFunc:   filterFunc,
@@ -48,7 +46,7 @@ func (r *PgReadOnlyRepo[E, F]) Get(ctx context.Context, filters F) (*E, error) {
 
 	if len(entities) == 0 {
 		return nil, errx.New(
-			fmt.Sprintf("no %s found", r.entityName),
+			fmt.Sprintf("no %s found", nameOf(new(E))),
 			errx.WithCode(r.notFoundCode),
 			errx.WithDetails(pg.GetPgErrorDetails(err, q)),
 		)
@@ -56,7 +54,7 @@ func (r *PgReadOnlyRepo[E, F]) Get(ctx context.Context, filters F) (*E, error) {
 
 	if len(entities) > 1 {
 		return nil, errx.New(
-			fmt.Sprintf("multiple %s found", r.entityName),
+			fmt.Sprintf("multiple %s found", nameOf(new(E))),
 			errx.WithCode(codeMultipleRowsFound),
 			errx.WithDetails(pg.GetPgErrorDetails(err, q)),
 		)
@@ -147,4 +145,14 @@ func (r *PgReadOnlyRepo[E, F]) Exists(ctx context.Context, filters F) (bool, err
 func (r *PgReadOnlyRepo[E, F]) applyModelTableExpr(q *bun.SelectQuery) *bun.SelectQuery {
 	table := q.GetModel().(bun.TableModel).Table() //nolint:errcheck // table name is always available
 	return q.ModelTableExpr("?.? AS ?", bun.Ident(r.schemaName), bun.Ident(table.Name), bun.Ident(table.Alias))
+}
+
+// nameOf returns the name of the type of the given value.
+// If the value is a pointer, it returns the name of the pointed-to type.
+func nameOf(v any) string {
+	t := reflect.TypeOf(v)
+	if t.Kind() == reflect.Pointer {
+		return t.Elem().Name()
+	}
+	return t.Name()
 }
