@@ -19,17 +19,51 @@ type PgReadOnlyRepo[E any, F any] struct {
 	filterFunc func(q *bun.SelectQuery, filters F) *bun.SelectQuery
 }
 
-func NewPgReadOnlyRepo[E any, F any](
-	idb bun.IDB,
-	schemaName string,
-	notFoundCode string,
-	filterFunc func(q *bun.SelectQuery, filters F) *bun.SelectQuery,
-) *PgReadOnlyRepo[E, F] {
-	return &PgReadOnlyRepo[E, F]{
+// PgReadOnlyRepoBuilder is a builder for PgReadOnlyRepo with sensible defaults.
+type PgReadOnlyRepoBuilder[E any, F any] struct {
+	idb          bun.IDB
+	schemaName   string
+	notFoundCode string
+	filterFunc   func(q *bun.SelectQuery, filters F) *bun.SelectQuery
+}
+
+// NewPgReadOnlyRepoBuilder creates a new builder with sensible defaults.
+func NewPgReadOnlyRepoBuilder[E any, F any](idb bun.IDB) *PgReadOnlyRepoBuilder[E, F] {
+	return &PgReadOnlyRepoBuilder[E, F]{
 		idb:          idb,
-		schemaName:   schemaName,
-		notFoundCode: notFoundCode,
-		filterFunc:   filterFunc,
+		schemaName:   "public",
+		notFoundCode: "OBJECT_NOT_FOUND",
+		filterFunc:   func(q *bun.SelectQuery, _ F) *bun.SelectQuery { return q },
+	}
+}
+
+// WithSchemaName sets the schema name.
+func (b *PgReadOnlyRepoBuilder[E, F]) WithSchemaName(name string) *PgReadOnlyRepoBuilder[E, F] {
+	b.schemaName = name
+	return b
+}
+
+// WithNotFoundCode sets the error code for not found errors.
+func (b *PgReadOnlyRepoBuilder[E, F]) WithNotFoundCode(code string) *PgReadOnlyRepoBuilder[E, F] {
+	b.notFoundCode = code
+	return b
+}
+
+// WithFilterFunc sets the filter function.
+func (b *PgReadOnlyRepoBuilder[E, F]) WithFilterFunc(
+	fn func(q *bun.SelectQuery, filters F) *bun.SelectQuery,
+) *PgReadOnlyRepoBuilder[E, F] {
+	b.filterFunc = fn
+	return b
+}
+
+// Build creates the PgReadOnlyRepo.
+func (b *PgReadOnlyRepoBuilder[E, F]) Build() *PgReadOnlyRepo[E, F] {
+	return &PgReadOnlyRepo[E, F]{
+		idb:          b.idb,
+		schemaName:   b.schemaName,
+		notFoundCode: b.notFoundCode,
+		filterFunc:   b.filterFunc,
 	}
 }
 
