@@ -34,11 +34,7 @@ func NewTracingMW() server.Middleware {
 			ctx, span := otel.Tracer("http-server").Start(c.UserContext(), defaultSpanName, opts...)
 			defer span.End()
 
-			traceID := tracing.GetStartingTraceID(ctx)
-			ctx = context.WithValue(ctx, meta.TraceID, traceID)
-			c.Set("X-Trace-ID", traceID)
-
-			c.SetUserContext(ctx)
+			setContext(ctx, c)
 
 			err := c.Next()
 
@@ -62,4 +58,15 @@ func NewTracingMW() server.Middleware {
 			return err
 		},
 	}
+}
+
+func setContext(ctx context.Context, c *fiber.Ctx) {
+	traceID := tracing.GetStartingTraceID(ctx)
+	ctx = context.WithValue(ctx, meta.TraceID, traceID)
+	ctx = context.WithValue(ctx, meta.IPAddress, c.IP())
+	ctx = context.WithValue(ctx, meta.UserAgent, c.Get("user-agent"))
+	ctx = context.WithValue(ctx, meta.AcceptLanguage, c.Get("accept-language"))
+
+	c.Set("X-Trace-ID", traceID)
+	c.SetUserContext(ctx)
 }
