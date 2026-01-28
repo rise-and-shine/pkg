@@ -28,6 +28,7 @@ func validateStrongPassword(fl validator.FieldLevel) bool {
 }
 
 // IsStrongPassword checks if the password meets strong password criteria.
+// At least 8 characters, uppercase, lowercase, number, and special character.
 func IsStrongPassword(password string) bool {
 	// A strong password must:
 	if len(password) < 8 {
