@@ -11,12 +11,12 @@ import (
 type (
 	SortOpts []Opt
 
-	sortDirection string
+	SortDirection string
 )
 
 const (
-	Asc  sortDirection = "asc"
-	Desc sortDirection = "desc"
+	Asc  SortDirection = "asc"
+	Desc SortDirection = "desc"
 
 	// expectedPartsCount is the expected number of parts in a sort option (field:direction).
 	expectedPartsCount = 2
@@ -50,7 +50,7 @@ func MakeFromStr(sortString string, allowedFields ...string) SortOpts {
 
 		options = append(options, Opt{
 			F: key,
-			D: sortDirection(direction),
+			D: SortDirection(direction),
 		})
 	}
 
@@ -67,7 +67,7 @@ func Make(sortOptions ...Opt) SortOpts {
 // Opt represents a single sorting option, consisting of a field and a direction.
 type Opt struct {
 	F string        // F is the field to sort by.
-	D sortDirection // D is the sorting direction (asc or desc).
+	D SortDirection // D is the sorting direction (asc or desc).
 }
 
 // ToSQL converts an Opt into an SQL-compatible clause (e.g., "name ASC").
