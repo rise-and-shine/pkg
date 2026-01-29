@@ -83,7 +83,7 @@ func logRequest(c *fiber.Ctx, operationID string, req any) {
 		log = log.With("request_body", fmt.Sprintf("too large for logging: %d bytes", len(c.Body())))
 	}
 
-	log.Debug("→ request")
+	log.Debug("→ → → HTTP request")
 }
 
 func logResponse(c *fiber.Ctx, operationID string, resp any, size int) {
@@ -98,7 +98,7 @@ func logResponse(c *fiber.Ctx, operationID string, resp any, size int) {
 		log = log.With("response_body", fmt.Sprintf("too large for logging: %d bytes", size))
 	}
 
-	log.Debug("← response")
+	log.Debug("← ← ← HTTP response")
 }
 
 // newRequest creates a new request of type I.
