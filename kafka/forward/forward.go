@@ -28,23 +28,26 @@ func ToEventSubscriber[E any](uc ucdef.EventSubscriber[E]) kafka.HandleFunc {
 			return errx.Wrap(err)
 		}
 
-		log := logger.
-			Named("kafka.handler").
-			WithContext(ctx).
-			With(
-				"operation_id", uc.OperationID(),
-				"event", mask.StructToOrdMap(event),
-			)
+		logEvent(ctx, uc.OperationID(), event)
 
 		err = uc.Handle(ctx, event)
 		if err != nil {
-			log.Errorx(err)
 			return errx.Wrap(err)
 		}
 
-		log.Debug("")
 		return nil
 	}
+}
+
+func logEvent(ctx context.Context, operationID string, event any) {
+	logger.
+		Named("kafka.handler").
+		WithContext(ctx).
+		With(
+			"operation_id", operationID,
+			"event", mask.StructToOrdMap(event),
+		).
+		Debug("⚡ event")
 }
 
 func newEvent[E any]() (E, error) {

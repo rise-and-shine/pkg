@@ -21,80 +21,84 @@ const maxLogAllowedSize = 8 << 10 // 8KB
 // O is the use case response type.
 func ToUserAction[I, O any](uc ucdef.UserAction[I, O]) fiber.Handler {
 	return func(c *fiber.Ctx) error {
-		// Initialize a new request of type T_Req
 		req, err := newRequest[I]()
 		if err != nil {
 			return errx.Wrap(err)
 		}
 
-		// Decode the request based on the HTTP method
-		switch c.Method() {
-		case fiber.MethodGet:
-			err = decodeQuery(c, req)
-			if err != nil {
-				return errx.Wrap(err)
-			}
-
-		case fiber.MethodPost:
-			err = decodeBody(c, req)
-			if err != nil {
-				return errx.Wrap(err)
-			}
-
-		default:
-			return errx.New(
-				"unsupported http method: allowed only GET and POST",
-				errx.WithType(errx.T_Validation),
-				errx.WithCode(codeInvalidHTTPMethod),
-				errx.WithDetails(errx.D{
-					"received_http_method": c.Method(),
-				}),
-			)
+		err = decodeRequest(c, req)
+		if err != nil {
+			return errx.Wrap(err)
 		}
 
-		log := logger.
-			Named("http.handler").
-			WithContext(c.UserContext()).
-			With("operation_id", uc.OperationID())
+		logRequest(c, uc.OperationID(), req)
 
-		// Include request body in log if it's size is not too large
-		if len(c.Body()) <= maxLogAllowedSize {
-			log = log.With("request_body", mask.StructToOrdMap(req))
-		} else {
-			log = log.With("request_body", fmt.Sprintf("too large for logging: %d bytes", len(c.Body())))
-		}
-
-		// Validate the request schema based on validate tags of the struct
 		err = val.ValidateSchema(req)
 		if err != nil {
-			log.Errorx(err)
 			return errx.Wrap(err)
 		}
 
-		// Execute the use case
 		resp, err := uc.Execute(c.UserContext(), req)
 		if err != nil {
-			log.Errorx(err)
 			return errx.Wrap(err)
 		}
 
-		// Write the success response
 		size, err := writeJSON(c, resp)
 		if err != nil {
-			log.Errorx(err)
 			return errx.Wrap(err)
 		}
 
-		// Include response body in log if it's size is not too large
-		if size <= maxLogAllowedSize {
-			log = log.With("response_body", mask.StructToOrdMap(resp))
-		} else {
-			log = log.With("response_body", fmt.Sprintf("too large for logging: %d bytes", size))
-		}
-
-		log.Debug("")
+		logResponse(c, uc.OperationID(), resp, size)
 		return nil
 	}
+}
+
+func decodeRequest[I any](c *fiber.Ctx, req I) error {
+	switch c.Method() {
+	case fiber.MethodGet:
+		return decodeQuery(c, req)
+	case fiber.MethodPost:
+		return decodeBody(c, req)
+	default:
+		return errx.New(
+			"unsupported http method: allowed only GET and POST",
+			errx.WithType(errx.T_Validation),
+			errx.WithCode(codeInvalidHTTPMethod),
+			errx.WithDetails(errx.D{
+				"received_http_method": c.Method(),
+			}),
+		)
+	}
+}
+
+func logRequest(c *fiber.Ctx, operationID string, req any) {
+	log := logger.
+		Named("http.handler").
+		WithContext(c.UserContext()).
+		With("operation_id", operationID)
+
+	if len(c.Body()) <= maxLogAllowedSize {
+		log = log.With("request_body", mask.StructToOrdMap(req))
+	} else {
+		log = log.With("request_body", fmt.Sprintf("too large for logging: %d bytes", len(c.Body())))
+	}
+
+	log.Debug("→ request")
+}
+
+func logResponse(c *fiber.Ctx, operationID string, resp any, size int) {
+	log := logger.
+		Named("http.handler").
+		WithContext(c.UserContext()).
+		With("operation_id", operationID)
+
+	if size <= maxLogAllowedSize {
+		log = log.With("response_body", mask.StructToOrdMap(resp))
+	} else {
+		log = log.With("response_body", fmt.Sprintf("too large for logging: %d bytes", size))
+	}
+
+	log.Debug("← response")
 }
 
 // newRequest creates a new request of type I.

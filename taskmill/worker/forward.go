@@ -6,6 +6,8 @@ import (
 	"reflect"
 
 	"github.com/code19m/errx"
+	"github.com/rise-and-shine/pkg/mask"
+	"github.com/rise-and-shine/pkg/observability/logger"
 	"github.com/rise-and-shine/pkg/ucdef"
 )
 
@@ -25,18 +27,34 @@ func (a *asyncTaskAdapter[P]) OperationID() string {
 }
 
 func (a *asyncTaskAdapter[P]) Execute(ctx context.Context, rawPayload any) error {
-	// Create typed payload instance
 	payload, err := newPayload[P]()
 	if err != nil {
 		return errx.Wrap(err, errx.WithCode(CodeInvalidPayload))
 	}
 
-	// Convert raw payload (map[string]any from JSONB) to typed struct
 	if err = unmarshalPayload(rawPayload, payload); err != nil {
 		return errx.Wrap(err, errx.WithCode(CodeInvalidPayload))
 	}
 
-	return a.uc.Execute(ctx, payload)
+	logTask(ctx, a.uc.OperationID(), payload)
+
+	err = a.uc.Execute(ctx, payload)
+	if err != nil {
+		return errx.Wrap(err)
+	}
+
+	return nil
+}
+
+func logTask(ctx context.Context, operationID string, payload any) {
+	logger.
+		Named("taskmill.worker").
+		WithContext(ctx).
+		With(
+			"operation_id", operationID,
+			"payload", mask.StructToOrdMap(payload),
+		).
+		Debug("⚙ task")
 }
 
 func newPayload[P any]() (P, error) {
