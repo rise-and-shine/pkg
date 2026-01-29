@@ -34,25 +34,18 @@ func (r *Request) Limit() int {
 }
 
 type Response[T any] struct {
-	PageNumber  int   `json:"page_number"`
-	PageSize    int   `json:"page_size"`
-	PageCount   int   `json:"page_count"`
-	TotalCount  int64 `json:"total_count"`
-	PageContent []T   `json:"page_content"`
+	PageNumber int   `json:"page_number"`
+	PageSize   int   `json:"page_size"`
+	Count      int64 `json:"count"`
+	Content    []T   `json:"content"`
 }
 
 // NewResponse creates paginated response from items and total count.
 func NewResponse[T any](items []T, totalCount int64, req Request) Response[T] {
-	pageCount := int(totalCount) / req.PageSize
-	if int(totalCount)%req.PageSize > 0 {
-		pageCount++
-	}
-
 	return Response[T]{
-		PageNumber:  req.PageNumber,
-		PageSize:    req.PageSize,
-		PageCount:   pageCount,
-		TotalCount:  totalCount,
-		PageContent: items,
+		PageNumber: req.PageNumber,
+		PageSize:   req.PageSize,
+		Count:      totalCount,
+		Content:    items,
 	}
 }
