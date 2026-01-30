@@ -13,8 +13,7 @@ const (
 	nameKey    = "logger"
 	timeKey    = "time"
 
-	encPretty  = "pretty"
-	levelDebug = "debug"
+	encPretty = "pretty"
 )
 
 // Config defines configuration options for the logger.
