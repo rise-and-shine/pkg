@@ -37,7 +37,7 @@ type Config struct {
 	Encoding string `yaml:"encoding" validate:"oneof=json pretty" default:"pretty"`
 
 	// Disable creates no-op logger . Useful in testing environments. Default is false.
-	Disable bool `yaml:"disabled" default:"false"`
+	Disable bool `yaml:"disable" default:"false"`
 }
 
 // getZapConfig converts the logger Config to a zap.Config.
