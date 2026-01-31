@@ -44,8 +44,13 @@ const (
 //	}
 //
 // If the YAML file does not define these fields, the default values will be applied.
-func MustLoad[T any]() T {
+func MustLoad[T any](opts ...Option) T {
 	var config T
+
+	options := &Options{}
+	for _, opt := range opts {
+		opt(options)
+	}
 
 	ensureNotPointer(config)
 
@@ -65,7 +70,9 @@ func MustLoad[T any]() T {
 
 	validateConfig(&config, env)
 
-	printConfig(&config, env)
+	if !options.Silent {
+		printConfig(&config, env)
+	}
 
 	return config
 }
