@@ -527,12 +527,17 @@ func (q *queue) upsertSchedule(ctx context.Context, db bun.IDB, schedule TaskSch
 	return errx.Wrap(err)
 }
 
-// deleteSchedulesNotIn deletes schedules not in the provided operation IDs.
-func (q *queue) deleteSchedulesNotIn(ctx context.Context, db bun.IDB, operationIDs []string) (int64, error) {
+// deleteSchedulesNotIn deletes schedules not in the provided operation IDs for a specific queue.
+func (q *queue) deleteSchedulesNotIn(
+	ctx context.Context,
+	db bun.IDB,
+	queueName string,
+	operationIDs []string,
+) (int64, error) {
 	if len(operationIDs) == 0 {
-		// Delete all schedules if no IDs provided
-		query := fmt.Sprintf(`DELETE FROM %s`, q.schedulesTableName())
-		result, err := db.ExecContext(ctx, query)
+		// Delete all schedules for this queue if no IDs provided
+		query := fmt.Sprintf(`DELETE FROM %s WHERE queue_name = ?`, q.schedulesTableName())
+		result, err := db.ExecContext(ctx, query, queueName)
 		if err != nil {
 			return 0, errx.Wrap(err)
 		}
@@ -541,15 +546,16 @@ func (q *queue) deleteSchedulesNotIn(ctx context.Context, db bun.IDB, operationI
 
 	// Build placeholders for IN clause
 	placeholders := make([]string, len(operationIDs))
-	args := make([]any, len(operationIDs))
+	args := make([]any, len(operationIDs)+1)
+	args[0] = queueName
 	for i, id := range operationIDs {
 		placeholders[i] = "?"
-		args[i] = id
+		args[i+1] = id
 	}
 
 	query := fmt.Sprintf(`
 		DELETE FROM %s
-		WHERE operation_id NOT IN (%s)
+		WHERE queue_name = ? AND operation_id NOT IN (%s)
 	`, q.schedulesTableName(), strings.Join(placeholders, ", "))
 
 	result, err := db.ExecContext(ctx, query, args...)

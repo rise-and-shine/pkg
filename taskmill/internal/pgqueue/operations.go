@@ -138,9 +138,14 @@ func (q *queue) UpsertSchedule(ctx context.Context, db bun.IDB, schedule TaskSch
 	return q.upsertSchedule(ctx, db, schedule)
 }
 
-// DeleteSchedulesNotIn deletes schedules not in the provided operation IDs.
-func (q *queue) DeleteSchedulesNotIn(ctx context.Context, db bun.IDB, operationIDs []string) (int64, error) {
-	return q.deleteSchedulesNotIn(ctx, db, operationIDs)
+// DeleteSchedulesNotIn deletes schedules not in the provided operation IDs for a specific queue.
+func (q *queue) DeleteSchedulesNotIn(
+	ctx context.Context,
+	db bun.IDB,
+	queueName string,
+	operationIDs []string,
+) (int64, error) {
+	return q.deleteSchedulesNotIn(ctx, db, queueName, operationIDs)
 }
 
 // ClaimDueSchedule claims a single due schedule using FOR UPDATE SKIP LOCKED.

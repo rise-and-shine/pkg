@@ -133,8 +133,8 @@ func (s *scheduler) RegisterSchedules(ctx context.Context, schedules ...Schedule
 		).Info("[scheduler]: schedule registered")
 	}
 
-	// Delete schedules not in the list
-	deleted, err := s.queue.DeleteSchedulesNotIn(ctx, s.db, operationIDs)
+	// Delete schedules not in the list (only for this queue)
+	deleted, err := s.queue.DeleteSchedulesNotIn(ctx, s.db, s.queueName, operationIDs)
 	if err != nil {
 		return errx.Wrap(err)
 	}

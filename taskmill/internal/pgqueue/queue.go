@@ -82,8 +82,8 @@ type Queue interface {
 	// UpsertSchedule inserts or updates a schedule.
 	UpsertSchedule(ctx context.Context, db bun.IDB, schedule TaskSchedule) error
 
-	// DeleteSchedulesNotIn deletes schedules not in the provided operation IDs.
-	DeleteSchedulesNotIn(ctx context.Context, db bun.IDB, operationIDs []string) (int64, error)
+	// DeleteSchedulesNotIn deletes schedules not in the provided operation IDs for a specific queue.
+	DeleteSchedulesNotIn(ctx context.Context, db bun.IDB, queueName string, operationIDs []string) (int64, error)
 
 	// ClaimDueSchedule claims a single due schedule using FOR UPDATE SKIP LOCKED.
 	ClaimDueSchedule(ctx context.Context, db bun.IDB) (*TaskSchedule, error)
