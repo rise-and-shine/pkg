@@ -2,6 +2,8 @@
 package forward
 
 import (
+	"mime"
+
 	"github.com/code19m/errx"
 	"github.com/gofiber/fiber/v2"
 )
@@ -13,7 +15,8 @@ func decodeBody[I any](c *fiber.Ctx, req I) error {
 		return nil // No body to decode
 	}
 
-	if c.Get(fiber.HeaderContentType) != fiber.MIMEApplicationJSON {
+	mediaType, _, err := mime.ParseMediaType(c.Get(fiber.HeaderContentType))
+	if err != nil || mediaType != fiber.MIMEApplicationJSON {
 		return errx.New(
 			"content type must be application/json for this request",
 			errx.WithType(errx.T_Validation),
@@ -21,7 +24,8 @@ func decodeBody[I any](c *fiber.Ctx, req I) error {
 		)
 	}
 
-	if err := c.BodyParser(req); err != nil {
+	err = c.BodyParser(req)
+	if err != nil {
 		return errx.Wrap(
 			err,
 			errx.WithType(errx.T_Validation),
