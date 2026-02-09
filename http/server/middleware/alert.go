@@ -30,15 +30,14 @@ func NewAlertingMW() server.Middleware {
 		Handler: func(c *fiber.Ctx) error {
 			ctx := c.UserContext()
 
-			operation := fmt.Sprintf("%s %s", c.Method(), c.Route().Path)
-
 			log := logger.Named("http.alerting").WithContext(ctx)
 
 			err := c.Next()
-
 			if err == nil {
 				return nil
 			}
+
+			operation := fmt.Sprintf("%s %s", c.Method(), c.Route().Path)
 
 			e := errx.AsErrorX(err)
 
