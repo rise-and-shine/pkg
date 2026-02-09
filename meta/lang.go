@@ -19,6 +19,26 @@ func SetLanguageMap(m map[string]map[string]string, defLang string) {
 	})
 }
 
+// L returns the localized value for the given language, falls back to any available value.
+func L(m map[string]string, lang string) string {
+	if v, ok := m[lang]; ok {
+		return v
+	}
+	if v, ok := m[defaultLang]; ok {
+		return v
+	}
+	for _, v := range m {
+		return v
+	}
+	return ""
+}
+
+// LCtx returns the localized value using the language from the request context,
+// falls back to any available value.
+func LCtx(ctx context.Context, m map[string]string) string {
+	return L(m, Find(ctx, AcceptLanguage))
+}
+
 // Tr returns the translated text for the given language.
 // Falls back to the default language if the requested language is not found.
 func Tr(text, lang string) string {
@@ -42,7 +62,7 @@ func getTranslationOrUntranslated(text string, m map[string]string) string {
 	res := m[text]
 
 	if res == "" {
-		return "UNTRANSLATED: " + text
+		return "[untranslated]: " + text
 	}
 
 	return res
