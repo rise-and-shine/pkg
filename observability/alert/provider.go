@@ -58,6 +58,12 @@ func (ap *alertProvider) SendError(
 	}
 	details["service_version"] = meta.ServiceVersion()
 
+	for k, v := range details {
+		if v == "" {
+			delete(details, k)
+		}
+	}
+
 	rec := errorRecord{
 		ID:        uuid.NewString(),
 		Code:      errCode,
