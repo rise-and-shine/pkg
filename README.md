@@ -11,7 +11,7 @@ This package collection follows Clean Architecture principles and provides build
 - **Database Operations** with PostgreSQL/Bun ORM integration
 - **Distributed Tracing** with OpenTelemetry
 - **Structured Logging** with contextual metadata
-- **Error Monitoring** with Sentinel integration
+- **Error Monitoring** with Discord/Telegram alerting
 - **Configuration Management** with environment-based YAML configs
 
 ## 📦 Packages
@@ -84,10 +84,10 @@ defer shutdown()
 
 #### `alert`
 
-Error alerting system with Sentinel integration for monitoring internal errors.
+Error alerting system with Discord/Telegram notifications, PostgreSQL-backed error storage, and intelligent cooldown management.
 
 ```go
-provider, err := alert.NewSentinelProvider(cfg, "my-service", "v1.0.0")
+provider, err := alert.NewProvider(cfg, db)
 err = provider.SendError(ctx, "DB_ERROR", "Connection failed", "user_login", details)
 ```
 
@@ -387,9 +387,9 @@ tracing:
   sample_rate: 1.0
 
 alert:
-  disable: false
-  sentinel_host: localhost
-  sentinel_port: 9090
+  provider: telegram  # or "discord" or "noop"
+  cooldown_minutes: 5
+  schema: sentinel
 ```
 
 ## 📋 Requirements
@@ -397,7 +397,7 @@ alert:
 - **Go**: 1.23.3+
 - **PostgreSQL**: 12+ (for database operations)
 - **OpenTelemetry Collector**: (for tracing)
-- **Sentinel Service**: (for error alerting)
+- **Discord/Telegram Bot**: (for error alerting)
 
 ## 🧪 Testing
 
