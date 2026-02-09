@@ -17,11 +17,12 @@ const (
 func WriteErrorResponse(c *fiber.Ctx, err error, hideDetails bool) error {
 	e := mapAnyErrorToErrorX(err)
 	traceID := c.UserContext().Value(meta.TraceID)
+	lang := c.Get("accept-language")
 
 	c.Status(mapErrorTypeToHTTPStatusCode(e.Type()))
 	_ = c.JSON(map[string]any{
 		"trace_id": traceID,
-		"error":    buildErrorSchema(e, hideDetails),
+		"error":    buildErrorSchema(e, hideDetails, lang),
 	})
 
 	return e
@@ -46,10 +47,11 @@ func customErrorHandler(hideDetails bool) fiber.ErrorHandler {
 
 // buildErrorSchema constructs an error response object from an ErrorX instance.
 // When hideDetails is false, includes trace and details information.
-func buildErrorSchema(e errx.ErrorX, hideDetails bool) errorSchema {
+func buildErrorSchema(e errx.ErrorX, hideDetails bool, lang string) errorSchema {
 	errResp := errorSchema{
 		Code:    e.Code(),
-		Message: e.Error(),
+		Message: meta.Tr(e.Code(), lang),
+		Cause:   e.Error(),
 		Fields:  e.Fields(),
 	}
 	if !hideDetails {
@@ -63,6 +65,7 @@ func buildErrorSchema(e errx.ErrorX, hideDetails bool) errorSchema {
 type errorSchema struct {
 	Code    string            `json:"code"`
 	Message string            `json:"message"`
+	Cause   string            `json:"cause"`
 	Trace   string            `json:"trace,omitempty"`
 	Fields  map[string]string `json:"fields,omitempty"`
 	Details map[string]any    `json:"details,omitempty"`
