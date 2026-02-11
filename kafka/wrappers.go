@@ -19,10 +19,6 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const (
-	alertTimeout = 3 * time.Second
-)
-
 // handlerWithRecovery is a wrapper around the handler to add recovery support.
 func (c *Consumer) handlerWithRecovery(next HandleFunc) HandleFunc {
 	return func(ctx context.Context, msg *sarama.ConsumerMessage) (err error) {
@@ -109,16 +105,10 @@ func (c *Consumer) handlerWithAlerting(next HandleFunc) HandleFunc {
 		details["service_version"] = meta.ServiceVersion()
 		details["error_trace"] = e.Trace()
 
-		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), alertTimeout)
-
-		go func() {
-			defer cancel()
-
-			sendErr := alert.SendError(ctx, e.Code(), err.Error(), operation, details)
-			if sendErr != nil {
-				logger.With("alert_send_error", sendErr).Warn("failed to send error alert")
-			}
-		}()
+		alertErr := alert.SendError(ctx, e.Code(), err.Error(), operation, details)
+		if alertErr != nil {
+			logger.With("alert_send_error", alertErr).Warn("failed to send error alert")
+		}
 
 		return err
 	}

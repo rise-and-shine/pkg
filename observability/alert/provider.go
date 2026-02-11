@@ -14,6 +14,10 @@ import (
 	"github.com/uptrace/bun"
 )
 
+const (
+	handleTimeout = 3 * time.Second
+)
+
 // errorRecord represents an error stored in the database.
 type errorRecord struct {
 	ID        string            `bun:"id,pk"`
@@ -75,33 +79,35 @@ func (ap *alertProvider) SendError(
 		Alerted:   false,
 	}
 
-	ctx = context.WithoutCancel(ctx)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), handleTimeout)
+	defer cancel()
 
 	if err := ap.store.add(ctx, rec); err != nil {
-		return err
+		return errx.Wrap(err)
 	}
 
-	go ap.processAlert(rec)
+	go ap.processAlert(ctx, rec)
 
 	return nil
 }
 
-func (ap *alertProvider) processAlert(rec errorRecord) {
-	log := logger.Named("alert")
-	ctx := context.Background()
+func (ap *alertProvider) processAlert(ctx context.Context, rec errorRecord) {
+	log := logger.Named("alert_provider").WithContext(ctx)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), handleTimeout)
+	defer cancel()
 
 	err := ap.store.checkAndMarkAlerted(ctx, rec, ap.cfg.CooldownMinutes)
 	if err != nil {
 		if errors.Is(err, errAlertCooldown) {
 			return
 		}
-		log.With("error", err.Error()).Warn("checkAndMarkAlerted failed")
+		log.Warnx(err)
 		return
 	}
 
 	frequency, err := ap.store.getErrorFrequency(ctx, rec.Service, rec.Operation, ap.cfg.CooldownMinutes)
 	if err != nil {
-		log.With("error", err.Error()).Warn("getErrorFrequency failed")
+		log.Warnx(err)
 		return
 	}
 
@@ -117,7 +123,7 @@ func (ap *alertProvider) processAlert(rec errorRecord) {
 
 	notifyErr := ap.notifier.notify(ctx, info)
 	if notifyErr != nil {
-		log.With("error", notifyErr.Error()).Warn("notification failed")
+		log.Warnx(notifyErr)
 	}
 }
 

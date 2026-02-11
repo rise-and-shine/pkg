@@ -349,16 +349,10 @@ func (w *worker) processWithAlerting(next handleFunc) handleFunc {
 		details["service_version"] = meta.ServiceVersion()
 		details["error_trace"] = e.Trace()
 
-		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), extendedContextTimeout)
-
-		go func() {
-			defer cancel()
-
-			senderr := alert.SendError(ctx, e.Code(), err.Error(), operation, details)
-			if senderr != nil {
-				logger.With("alert_send_error", senderr).Warn("[worker]: failed to send error alert")
-			}
-		}()
+		alertErr := alert.SendError(ctx, e.Code(), err.Error(), operation, details)
+		if alertErr != nil {
+			logger.With("alert_send_error", alertErr).Warn("[worker]: failed to send error alert")
+		}
 
 		return err
 	}

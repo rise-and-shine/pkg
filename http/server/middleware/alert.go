@@ -2,9 +2,7 @@
 package middleware
 
 import (
-	"context"
 	"fmt"
-	"time"
 
 	"github.com/code19m/errx"
 	"github.com/gofiber/fiber/v2"
@@ -13,10 +11,6 @@ import (
 	"github.com/rise-and-shine/pkg/observability/alert"
 	"github.com/rise-and-shine/pkg/observability/logger"
 	"github.com/spf13/cast"
-)
-
-const (
-	alertSendTimeout = 3 * time.Second
 )
 
 // NewAlertingMW creates a middleware that sends alerts for internal server errors.
@@ -58,16 +52,10 @@ func NewAlertingMW() server.Middleware {
 			details["object_type"] = cast.ToString(c.Locals(meta.ObjectType))
 			details["object_id"] = cast.ToString(c.Locals(meta.ObjectID))
 
-			newCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), alertSendTimeout)
-
-			go func() {
-				defer cancel() // ensure newCtx is cancelled after sending alert
-
-				sendErr := alert.SendError(newCtx, e.Code(), e.Error(), operation, details)
-				if sendErr != nil {
-					log.With("alert_send_error", sendErr.Error()).Warn("failed to send alert")
-				}
-			}()
+			alertErr := alert.SendError(ctx, e.Code(), e.Error(), operation, details)
+			if alertErr != nil {
+				log.With("alert_send_error", alertErr.Error()).Warn("failed to send alert")
+			}
 
 			return err
 		},
