@@ -35,7 +35,7 @@ type Config struct {
 	SendTimeout time.Duration `yaml:"send_timeout" default:"3s"`
 
 	// Schema is the PostgreSQL schema for the errors table.
-	Schema string `yaml:"schema" default:"sentinel"`
+	Schema string `yaml:"schema" default:"alert"`
 
 	// TelegramBotToken is the Telegram bot token (required when Provider is "telegram").
 	TelegramBotToken string `yaml:"telegram_bot_token" mask:"true"`
