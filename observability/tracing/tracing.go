@@ -6,6 +6,7 @@ package tracing
 import (
 	"context"
 	"net"
+	"time"
 
 	"github.com/code19m/errx"
 	"github.com/rise-and-shine/pkg/meta"
@@ -82,9 +83,22 @@ func InitGlobalTracer(cfg Config) (func() error, error) {
 	)
 	otel.SetTracerProvider(tp)
 
+	return shutdownFunc(tp), nil
+}
+
+func shutdownFunc(tp *trace.TracerProvider) func() error {
 	return func() error {
-		ctx := context.Background()
-		_ = tp.ForceFlush(ctx)
-		return tp.Shutdown(ctx)
-	}, nil
+		const shutdownTimeout = 5 * time.Second
+
+		ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+
+		err := tp.ForceFlush(ctx)
+		if err != nil {
+			return errx.Wrap(err)
+		}
+
+		err = tp.Shutdown(ctx)
+		return errx.Wrap(err)
+	}
 }
