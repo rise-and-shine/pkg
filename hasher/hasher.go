@@ -5,8 +5,25 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-func Hash(password string) (string, error) {
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+type opts struct {
+	cost int
+}
+
+type Option func(*opts)
+
+func WithCost(cost int) Option {
+	return func(o *opts) {
+		o.cost = cost
+	}
+}
+
+func Hash(password string, options ...Option) (string, error) {
+	o := opts{cost: bcrypt.DefaultCost}
+	for _, opt := range options {
+		opt(&o)
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), o.cost)
 	if err != nil {
 		return "", errx.Wrap(err)
 	}
