@@ -6,6 +6,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/code19m/errx"
 	"github.com/minio/minio-go/v7"
@@ -20,6 +21,7 @@ type Client struct {
 }
 
 // New creates a new MinIO filestore client.
+// It automatically creates the configured bucket if it does not exist.
 func New(cfg Config) (*Client, error) {
 	client, err := minio.New(cfg.Endpoint, &minio.Options{
 		Creds:  credentials.NewStaticV4(cfg.AccessKey, cfg.SecretKey, ""),
@@ -27,6 +29,20 @@ func New(cfg Config) (*Client, error) {
 	})
 	if err != nil {
 		return nil, errx.Wrap(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	exists, err := client.BucketExists(ctx, cfg.Bucket)
+	if err != nil {
+		return nil, errx.Wrap(err)
+	}
+	if !exists {
+		err = client.MakeBucket(ctx, cfg.Bucket, minio.MakeBucketOptions{})
+		if err != nil {
+			return nil, errx.Wrap(err)
+		}
 	}
 
 	return &Client{
