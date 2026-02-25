@@ -565,20 +565,20 @@ func (q *queue) deleteSchedulesNotIn(
 	return result.RowsAffected()
 }
 
-// claimDueSchedule claims a single due schedule using FOR UPDATE SKIP LOCKED.
+// claimDueSchedule claims a single due schedule for the given queue using FOR UPDATE SKIP LOCKED.
 // Returns nil if no schedule is due.
-func (q *queue) claimDueSchedule(ctx context.Context, db bun.IDB) (*TaskSchedule, error) {
+func (q *queue) claimDueSchedule(ctx context.Context, db bun.IDB, queueName string) (*TaskSchedule, error) {
 	query := fmt.Sprintf(`
 		SELECT *
 		FROM %s
-		WHERE next_run_at <= NOW()
+		WHERE queue_name = ? AND next_run_at <= NOW()
 		ORDER BY next_run_at
 		LIMIT 1
 		FOR UPDATE SKIP LOCKED
 	`, q.schedulesTableName())
 
 	schedule := new(TaskSchedule)
-	err := db.NewRaw(query).Scan(ctx, schedule)
+	err := db.NewRaw(query, queueName).Scan(ctx, schedule)
 	if err != nil {
 		if err.Error() == "sql: no rows in result set" {
 			return nil, nil //nolint:nilnil // Intentionally returning nil,nil as function name indicates

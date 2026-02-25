@@ -85,8 +85,8 @@ type Queue interface {
 	// DeleteSchedulesNotIn deletes schedules not in the provided operation IDs for a specific queue.
 	DeleteSchedulesNotIn(ctx context.Context, db bun.IDB, queueName string, operationIDs []string) (int64, error)
 
-	// ClaimDueSchedule claims a single due schedule using FOR UPDATE SKIP LOCKED.
-	ClaimDueSchedule(ctx context.Context, db bun.IDB) (*TaskSchedule, error)
+	// ClaimDueSchedule claims a single due schedule for the given queue using FOR UPDATE SKIP LOCKED.
+	ClaimDueSchedule(ctx context.Context, db bun.IDB, queueName string) (*TaskSchedule, error)
 
 	// UpdateScheduleSuccess updates a schedule after successful execution.
 	UpdateScheduleSuccess(ctx context.Context, db bun.IDB, id int64, nextRunAt time.Time) error

@@ -148,9 +148,9 @@ func (q *queue) DeleteSchedulesNotIn(
 	return q.deleteSchedulesNotIn(ctx, db, queueName, operationIDs)
 }
 
-// ClaimDueSchedule claims a single due schedule using FOR UPDATE SKIP LOCKED.
-func (q *queue) ClaimDueSchedule(ctx context.Context, db bun.IDB) (*TaskSchedule, error) {
-	return q.claimDueSchedule(ctx, db)
+// ClaimDueSchedule claims a single due schedule for the given queue using FOR UPDATE SKIP LOCKED.
+func (q *queue) ClaimDueSchedule(ctx context.Context, db bun.IDB, queueName string) (*TaskSchedule, error) {
+	return q.claimDueSchedule(ctx, db, queueName)
 }
 
 // UpdateScheduleSuccess updates a schedule after successful execution.

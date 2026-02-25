@@ -200,7 +200,7 @@ func (s *scheduler) processOneSchedule(ctx context.Context) (bool, error) {
 	defer tx.Rollback() //nolint:errcheck // intentional
 
 	// Claim a due schedule with FOR UPDATE SKIP LOCKED
-	schedule, err := s.queue.ClaimDueSchedule(ctx, &tx)
+	schedule, err := s.queue.ClaimDueSchedule(ctx, &tx, s.queueName)
 	if err != nil {
 		return false, errx.Wrap(err)
 	}
