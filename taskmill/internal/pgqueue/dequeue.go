@@ -47,7 +47,10 @@ func (q *queue) Dequeue(ctx context.Context, db bun.IDB, params DequeueParams) (
 	// These timeouts ensure that even if a worker crashes, the lock will be
 	// automatically released within the configured timeout period, preventing deadlocks.
 	if params.TaskGroupID != nil && *params.TaskGroupID != "" {
-		lockID := calculateLockID(params.QueueName, *params.TaskGroupID)
+		// Cast to int64: pg_advisory_xact_lock takes bigint, not numeric.
+		// The uint64 hash wraps around to negative values for large hashes, but
+		// this is fine — the lock ID is still unique per (queue, group) pair.
+		lockID := int64(calculateLockID(params.QueueName, *params.TaskGroupID))
 		_, err = db.ExecContext(ctx, "SELECT pg_advisory_xact_lock(?)", lockID)
 		if err != nil {
 			return nil, errx.Wrap(err)

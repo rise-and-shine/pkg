@@ -111,7 +111,7 @@ func (q *queue) dequeueTasks(
 			  AND visible_at <= NOW()
 			  AND scheduled_at <= NOW()
 			  AND dlq_at IS NULL
-			  AND (? IS NULL OR task_group_id = ?)
+			  AND (CASE WHEN ? IS NULL THEN task_group_id IS NULL ELSE task_group_id = ? END)
 			ORDER BY priority DESC, id ASC
 			LIMIT ?
 			FOR UPDATE SKIP LOCKED
