@@ -178,11 +178,14 @@ func (q *queue) deleteTask(ctx context.Context, db bun.IDB, taskID int64) (int64
 	return rowsAffected, nil
 }
 
-// updateTaskVisibility updates the visibility timeout of a task.
-func (q *queue) updateTaskVisibility(
+// retryOwnedTask schedules a task's next run, if the run that failed still owns
+// it: the task is not parked, and no later pickup has counted another attempt.
+// It returns the number of rows changed, 0 or 1.
+func (q *queue) retryOwnedTask(
 	ctx context.Context,
 	db bun.IDB,
 	taskID int64,
+	attempts int,
 	visibleAt time.Time,
 ) (int64, error) {
 	query := fmt.Sprintf(`
@@ -190,9 +193,45 @@ func (q *queue) updateTaskVisibility(
 		SET visible_at = ?,
 		    updated_at = NOW()
 		WHERE id = ?
+		  AND attempts = ?
+		  AND dlq_at IS NULL
 	`, q.tableName())
 
-	result, err := db.ExecContext(ctx, query, visibleAt, taskID)
+	result, err := db.ExecContext(ctx, query, visibleAt, taskID, attempts)
+	if err != nil {
+		return 0, errx.Wrap(err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return 0, errx.Wrap(err)
+	}
+
+	return rowsAffected, nil
+}
+
+// parkOwnedTask moves a task to the DLQ, if the run that failed still owns it,
+// as retryOwnedTask checks. It returns the number of rows changed, 0 or 1.
+func (q *queue) parkOwnedTask(
+	ctx context.Context,
+	db bun.IDB,
+	taskID int64,
+	attempts int,
+	dlqAt time.Time,
+	dlqReason map[string]any,
+) (int64, error) {
+	query := fmt.Sprintf(`
+		UPDATE %s
+		SET
+			dlq_at = ?,
+			dlq_reason = ?,
+			updated_at = NOW()
+		WHERE id = ?
+		  AND attempts = ?
+		  AND dlq_at IS NULL
+	`, q.tableName())
+
+	result, err := db.ExecContext(ctx, query, dlqAt, dlqReason, taskID, attempts)
 	if err != nil {
 		return 0, errx.Wrap(err)
 	}

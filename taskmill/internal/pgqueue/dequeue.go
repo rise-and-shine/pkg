@@ -90,14 +90,14 @@ func (q *queue) Dequeue(ctx context.Context, db bun.IDB, params DequeueParams) (
 		// The dequeue query has already counted this pickup, so Attempts is the
 		// number of the run about to start, and runs 1..MaxAttempts are allowed.
 		// A failed last run never gets here: Nack parks it with its own error.
-		// Arriving past the limit means the last run never reported back (the
-		// worker stopped or crashed mid-run, or the run outlived its visibility
-		// timeout), so the task is parked instead of being run again.
-		if task.MaxAttempts > 0 && task.Attempts > task.MaxAttempts {
+		// Arriving past the limit means the last run never reported a result the
+		// queue could record, so the task is parked instead of being run again.
+		if task.Attempts > effectiveMaxAttempts(task.MaxAttempts) {
 			err = q.moveToDLQ(ctx, db, task.ID, time.Now(), map[string]any{
 				"code": CodeAttemptsExhausted,
 				"reason": "task used all of its max_attempts, and its last attempt never reported a result " +
-					"(the worker stopped or crashed mid-run, or the run outlived its visibility timeout)",
+					"the queue could record (worker crash or stop, visibility timeout, no handler registered, " +
+					"missing operation_id, or a failed ack/nack)",
 			})
 			if err != nil {
 				return nil, errx.Wrap(err)

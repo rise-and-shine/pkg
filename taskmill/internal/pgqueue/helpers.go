@@ -1,6 +1,13 @@
 package pgqueue
 
-import "github.com/code19m/errx"
+import (
+	"encoding/json"
+	"fmt"
+	"slices"
+	"strings"
+
+	"github.com/code19m/errx"
+)
 
 // validateSingleTask validates a SingleTask.
 func validateSingleTask(task TaskParams) error {
@@ -58,4 +65,38 @@ func taskGroupIDToAny(taskGroupID *string) any {
 		return *taskGroupID
 	}
 	return nil
+}
+
+// effectiveMaxAttempts is the number of runs a task gets. A row stored with
+// max_attempts below 1, which the enqueue refuses, still gets one run, so it
+// can never be picked up forever.
+func effectiveMaxAttempts(maxAttempts int) int {
+	return max(maxAttempts, 1)
+}
+
+// encodableReason returns reason if it can be stored as JSON. Otherwise it
+// returns a copy without the values that cannot be, and with encode_error
+// naming them, so that a task is still parked with what can be kept.
+func encodableReason(reason map[string]any) map[string]any {
+	_, err := json.Marshal(reason)
+	if err == nil {
+		return reason
+	}
+
+	kept := make(map[string]any, len(reason)+1)
+	dropped := make([]string, 0, 1)
+
+	for key, value := range reason {
+		_, valueErr := json.Marshal(value)
+		if valueErr != nil {
+			dropped = append(dropped, key)
+			continue
+		}
+		kept[key] = value
+	}
+
+	slices.Sort(dropped)
+	kept["encode_error"] = fmt.Sprintf("dropped %s: %v", strings.Join(dropped, ", "), err)
+
+	return kept
 }

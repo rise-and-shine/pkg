@@ -47,8 +47,10 @@ type Queue interface {
 	// Ack acknowledges a task, removing it from the queue.
 	Ack(ctx context.Context, db bun.IDB, taskID int64) error
 
-	// Nack negatively acknowledges a task, triggering retry or DLQ.
-	Nack(ctx context.Context, db bun.IDB, taskID int64, reason map[string]any) error
+	// Nack negatively acknowledges a task, triggering retry or DLQ. attempts is
+	// the count the failed run was dequeued with. It reports false, changing
+	// nothing, when that run no longer owns the task.
+	Nack(ctx context.Context, db bun.IDB, taskID int64, attempts int, reason map[string]any) (bool, error)
 
 	// Purge removes all tasks from a queue (excluding DLQ tasks).
 	Purge(ctx context.Context, db bun.IDB, queueName string) error

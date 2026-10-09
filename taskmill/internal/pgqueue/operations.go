@@ -5,11 +5,17 @@ import (
 	"time"
 
 	"github.com/code19m/errx"
+	"github.com/rise-and-shine/pkg/pg"
 	"github.com/uptrace/bun"
 )
 
 // Ack acknowledges a task, removing it from the queue.
 // If the task is not ephemeral, it will be saved to task_results.
+//
+// Unlike Nack, Ack does not check that the run still owns the task. A run that
+// outlived its visibility timeout may ack after a newer pickup took the task,
+// or after that pickup parked it as ATTEMPTS_EXHAUSTED. A late success is still
+// a success: the work is done, so the task is recorded and deleted all the same.
 func (q *queue) Ack(ctx context.Context, db bun.IDB, taskID int64) error {
 	// Load the task first to get its data
 	task, err := q.selectTaskByID(ctx, db, taskID)
@@ -42,41 +48,50 @@ func (q *queue) Ack(ctx context.Context, db bun.IDB, taskID int64) error {
 // Nack negatively acknowledges a task, triggering retry or DLQ.
 // A task whose last allowed run failed is moved to the DLQ with reason, the
 // error of that run.
-func (q *queue) Nack(ctx context.Context, db bun.IDB, taskID int64, reason map[string]any) error {
+//
+// attempts is the count the failed run was dequeued with, and the nack applies
+// only while that run still owns the task: the task is not parked, and no later
+// pickup has counted another attempt. A run that outlived its visibility timeout
+// may nack after a newer run took the task. That late nack must neither park the
+// task nor cut the newer run's lease short, so Nack changes nothing and reports
+// false. It reports false too when the task is gone, acked by a newer run.
+//
+// A reason that cannot be stored as JSON is stored without the values that
+// cannot, and with encode_error naming them.
+func (q *queue) Nack(
+	ctx context.Context,
+	db bun.IDB,
+	taskID int64,
+	attempts int,
+	reason map[string]any,
+) (bool, error) {
 	// Load the task
 	task, err := q.selectTaskByID(ctx, db, taskID)
+	if pg.IsNotFound(err) {
+		return false, nil
+	}
 	if err != nil {
-		return errx.Wrap(err)
+		return false, errx.Wrap(err)
 	}
 
-	// Check if already in DLQ
-	if task.DLQAt != nil {
-		return errx.New("[pgqueue]: task is already in dead letter queue")
+	// A parked task, or one a later pickup took, is no longer this run's
+	if task.DLQAt != nil || task.Attempts != attempts {
+		return false, nil
 	}
 
-	// Determine if should retry
-	shouldRetry := q.retryStrategy.ShouldRetry(task.Attempts, task.MaxAttempts)
+	var changed int64
 
-	if shouldRetry {
-		// Calculate next retry delay
-		delay := q.retryStrategy.NextRetryDelay(task.Attempts)
-		newVisibleAt := time.Now().Add(delay)
-
-		// Update task for retry
-		_, err = q.updateTaskVisibility(ctx, db, taskID, newVisibleAt)
-		if err != nil {
-			return errx.Wrap(err)
-		}
+	if q.retryStrategy.ShouldRetry(attempts, effectiveMaxAttempts(task.MaxAttempts)) {
+		delay := q.retryStrategy.NextRetryDelay(attempts)
+		changed, err = q.retryOwnedTask(ctx, db, taskID, attempts, time.Now().Add(delay))
 	} else {
-		// Move to DLQ
-		now := time.Now()
-		err = q.moveToDLQ(ctx, db, taskID, now, reason)
-		if err != nil {
-			return errx.Wrap(err)
-		}
+		changed, err = q.parkOwnedTask(ctx, db, taskID, attempts, time.Now(), encodableReason(reason))
+	}
+	if err != nil {
+		return false, errx.Wrap(err)
 	}
 
-	return nil
+	return changed == 1, nil
 }
 
 // Purge removes all tasks from a queue (excluding DLQ tasks).

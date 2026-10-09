@@ -6,9 +6,10 @@
 //
 //	TEST_POSTGRES_DSN='postgres://postgres:postgres@localhost:5432/taskmill_test?sslmode=disable' go test ./taskmill/...
 //
-// The database must exist. Tests create the taskmill schema in it and keep to
-// queue names of their own, so they can run in parallel and leave nothing that
-// another run reads.
+// The database must exist. The first test creates the taskmill schema in it.
+// Tests keep to queue names of their own, so they can run in parallel and
+// leave nothing that another run reads. A database whose taskmill schema is
+// older than the code under test must be dropped and created again.
 package testdb
 
 import (
@@ -22,7 +23,8 @@ import (
 
 	"github.com/google/uuid"
 	_ "github.com/jackc/pgx/v5/stdlib" // registers the "pgx" database/sql driver
-	"github.com/rise-and-shine/pkg/taskmill"
+	"github.com/rise-and-shine/pkg/taskmill/internal/config"
+	"github.com/rise-and-shine/pkg/taskmill/internal/pgqueue"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/pgdialect"
 )
@@ -53,15 +55,30 @@ func Open(t *testing.T) *bun.DB {
 	ctx, cancel := context.WithTimeout(t.Context(), migrateTimeout)
 	defer cancel()
 
-	// Parallel tests migrate at once, and CREATE ... IF NOT EXISTS still races
-	// on the catalog. One transaction-scoped advisory lock serializes them.
+	// Every test opens the database, and parallel tests (and test binaries) run
+	// against one schema. Migrating while other tests poll the queue deadlocks:
+	// the migration replaces the queue's trigger and view. So the schema is
+	// created once, by the first test, under a transaction-scoped advisory lock
+	// that every other test waits on, and never migrated again while in use.
 	err = db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		_, lockErr := tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock(hashtext('taskmill-testdb-migrate'))")
 		if lockErr != nil {
 			return lockErr
 		}
 
-		return taskmill.Migrate(ctx, db)
+		var exists bool
+		existsErr := tx.NewRaw("SELECT to_regclass(?) IS NOT NULL", config.SchemaName()+".task_queue").
+			Scan(ctx, &exists)
+		if existsErr != nil || exists {
+			return existsErr
+		}
+
+		queue, queueErr := pgqueue.NewQueue(config.SchemaName(), config.RetryStrategy())
+		if queueErr != nil {
+			return queueErr
+		}
+
+		return queue.Migrate(ctx, tx, config.SchemaName())
 	})
 	if err != nil {
 		t.Fatalf("testdb: migrate taskmill schema: %v", err)

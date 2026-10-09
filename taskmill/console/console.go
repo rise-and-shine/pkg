@@ -14,6 +14,13 @@ import (
 const (
 	// CodeScheduleNotFound is returned when a schedule is not found.
 	CodeScheduleNotFound = "SCHEDULE_NOT_FOUND"
+
+	// CodeTaskExpired is the DLQReason code of a task found past its expires_at.
+	CodeTaskExpired = pgqueue.CodeTaskExpired
+
+	// CodeAttemptsExhausted is the DLQReason code of a task picked up again after
+	// its last allowed run never reported a result the queue could record.
+	CodeAttemptsExhausted = pgqueue.CodeAttemptsExhausted
 )
 
 // Console provides administrative and monitoring operations for taskmill.

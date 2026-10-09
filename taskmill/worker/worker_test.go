@@ -3,6 +3,8 @@ package worker_test
 import (
 	"context"
 	"fmt"
+	"math"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -12,6 +14,7 @@ import (
 	"github.com/rise-and-shine/pkg/taskmill/enqueuer"
 	"github.com/rise-and-shine/pkg/taskmill/internal/testdb"
 	"github.com/rise-and-shine/pkg/taskmill/worker"
+	"github.com/rise-and-shine/pkg/ucdef"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/uptrace/bun"
@@ -38,6 +41,7 @@ func TestWorker_RunsATaskMaxAttemptsTimes(t *testing.T) {
 		name        string
 		maxAttempts int
 		failures    int32
+		details     errx.D
 		wantRuns    int32
 		wantParked  bool
 	}{
@@ -62,6 +66,14 @@ func TestWorker_RunsATaskMaxAttemptsTimes(t *testing.T) {
 			wantRuns:    3,
 			wantParked:  false,
 		},
+		{
+			name:        "a failure whose details JSON cannot hold is parked with its code",
+			maxAttempts: 1,
+			failures:    1,
+			details:     errx.D{"ratio": math.NaN()},
+			wantRuns:    1,
+			wantParked:  true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -70,7 +82,7 @@ func TestWorker_RunsATaskMaxAttemptsTimes(t *testing.T) {
 
 			// GIVEN a worker serving a task that fails its first runs
 			queueName := testdb.QueueName(t)
-			task := &flaky{failures: tt.failures}
+			task := &flaky{failures: tt.failures, details: tt.details}
 			startWorker(t, db, queueName, task)
 
 			// WHEN the task is enqueued with its attempt limit
@@ -94,14 +106,134 @@ func TestWorker_RunsATaskMaxAttemptsTimes(t *testing.T) {
 			assert.Equal(t, codeRunFailed, parked.DLQReason["code"])
 			assert.Contains(t, parked.DLQReason["message"], fmt.Sprintf("run %d failed", tt.wantRuns),
 				"the reason is the last run's error")
+
+			if tt.details != nil {
+				assert.NotContains(t, parked.DLQReason, "details")
+				assert.NotEmpty(t, parked.DLQReason["details_error"])
+			}
 		})
 	}
 }
 
-// flaky fails its first `failures` runs, each with an error naming the run,
-// and succeeds after them.
+// TestWorker_RunsEachTaskMaxAttemptsTimesAcrossWorkers pins the same limit
+// under contention: several workers poll one queue, and each task still runs
+// exactly as often as its attempts allow, never twice for one attempt.
+func TestWorker_RunsEachTaskMaxAttemptsTimesAcrossWorkers(t *testing.T) {
+	t.Parallel()
+
+	const (
+		workers     = 3
+		tasks       = 12
+		maxAttempts = 3
+	)
+
+	db := testdb.Open(t)
+	queueName := testdb.QueueName(t)
+
+	// GIVEN several workers serving a task whose even payloads always fail and
+	// whose odd ones fail once
+	task := &counted{runs: make(map[int]int)}
+	for range workers {
+		startWorker(t, db, queueName, task, worker.WithConcurrency(3))
+	}
+
+	// WHEN the tasks are enqueued
+	eq, err := enqueuer.New(queueName)
+	require.NoError(t, err)
+
+	batch := make([]enqueuer.BatchTask, 0, tasks)
+	for n := range tasks {
+		batch = append(batch, enqueuer.BatchTask{
+			OperationID: countedOperation,
+			Payload:     map[string]int{"n": n},
+			Options:     []enqueuer.Option{enqueuer.WithMaxAttempts(maxAttempts)},
+		})
+	}
+	_, err = eq.EnqueueBatch(t.Context(), db, batch)
+	require.NoError(t, err)
+
+	// THEN half are parked and half complete
+	cons, err := console.New(db)
+	require.NoError(t, err)
+
+	var parked []console.DLQTask
+	for deadline := time.Now().Add(outcomeTimeout); ; time.Sleep(25 * time.Millisecond) {
+		require.True(t, time.Now().Before(deadline), "the tasks did not all finish within %v", outcomeTimeout)
+
+		parked, err = cons.ListDLQTasks(t.Context(), console.ListDLQTasksParams{QueueName: &queueName})
+		require.NoError(t, err)
+		completed, listErr := cons.ListResults(t.Context(), console.ListResultsParams{QueueName: &queueName})
+		require.NoError(t, listErr)
+
+		if len(parked)+len(completed) == tasks {
+			assert.Len(t, completed, tasks/2)
+			break
+		}
+	}
+
+	// AND every task ran exactly as often as its attempts allowed
+	for n := range tasks {
+		want := 2
+		if n%2 == 0 {
+			want = maxAttempts
+		}
+		assert.Equal(t, want, task.runsOf(n), "runs of task %d", n)
+	}
+
+	for _, p := range parked {
+		assert.Equal(t, maxAttempts, p.Attempts)
+		assert.Equal(t, codeRunFailed, p.DLQReason["code"])
+	}
+}
+
+const countedOperation = "counted"
+
+// counted counts its runs per payload. An even payload always fails; an odd one
+// fails its first run only.
+type counted struct {
+	mu   sync.Mutex
+	runs map[int]int
+}
+
+func (c *counted) OperationID() string { return countedOperation }
+
+func (c *counted) Execute(_ context.Context, payload any) error {
+	fields, ok := payload.(map[string]any)
+	if !ok {
+		return errx.New("payload is not an object")
+	}
+
+	number, ok := fields["n"].(float64)
+	if !ok {
+		return errx.New("payload carries no n")
+	}
+
+	n := int(number)
+
+	c.mu.Lock()
+	c.runs[n]++
+	run := c.runs[n]
+	c.mu.Unlock()
+
+	if n%2 == 0 || run == 1 {
+		return errx.New(fmt.Sprintf("run %d failed", run), errx.WithCode(codeRunFailed))
+	}
+
+	return nil
+}
+
+func (c *counted) runsOf(n int) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.runs[n]
+}
+
+// flaky fails its first `failures` runs, each with an error naming the run
+// and carrying details, and succeeds after them.
 type flaky struct {
 	failures int32
+	details  errx.D
 	runs     atomic.Int32
 }
 
@@ -110,19 +242,21 @@ func (f *flaky) OperationID() string { return flakyOperation }
 func (f *flaky) Execute(context.Context, any) error {
 	run := f.runs.Add(1)
 	if run <= f.failures {
-		return errx.New(fmt.Sprintf("run %d failed", run), errx.WithCode(codeRunFailed))
+		return errx.New(fmt.Sprintf("run %d failed", run), errx.WithCode(codeRunFailed), errx.WithDetails(f.details))
 	}
 
 	return nil
 }
 
-func startWorker(t *testing.T, db *bun.DB, queueName string, task *flaky) {
+func startWorker(t *testing.T, db *bun.DB, queueName string, task ucdef.AsyncTask[any], opts ...worker.Option) {
 	t.Helper()
 
-	w, err := worker.New(db, queueName,
+	opts = append([]worker.Option{
 		worker.WithConcurrency(1),
-		worker.WithPollInterval(10*time.Millisecond),
-	)
+		worker.WithPollInterval(10 * time.Millisecond),
+	}, opts...)
+
+	w, err := worker.New(db, queueName, opts...)
 	require.NoError(t, err)
 
 	w.RegisterAsyncTask(task)

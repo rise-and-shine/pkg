@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"runtime"
 	"strconv"
@@ -285,13 +286,25 @@ func (w *worker) nackTask(ctx context.Context, queueTask pgqueue.Task, reason ma
 	}
 	defer tx.Rollback() //nolint:errcheck // rollback is no-op after commit
 
-	err = w.queue.Nack(ctx, &tx, queueTask.ID, reason)
+	applied, err := w.queue.Nack(ctx, &tx, queueTask.ID, queueTask.Attempts, reason)
 	if err != nil {
 		return errx.Wrap(err)
 	}
 
 	err = tx.Commit()
-	return errx.Wrap(err)
+	if err != nil {
+		return errx.Wrap(err)
+	}
+
+	if !applied {
+		w.logger.With(
+			"operation_id", queueTask.OperationID,
+			"task_id", queueTask.ID,
+			"attempts", queueTask.Attempts,
+		).Debug("[worker]: late nack ignored: a newer run owns the task, or it is already parked or done")
+	}
+
+	return nil
 }
 
 func (w *worker) buildProcessChain() handleFunc {
@@ -461,13 +474,24 @@ func executeWithRecovery(ctx context.Context, task ucdef.AsyncTask[any], payload
 	return task.Execute(ctx, payload)
 }
 
+// errxToMap is the DLQ reason of a failed run. Details that cannot be stored as
+// JSON, such as a NaN, are replaced by details_error, so the run's code and
+// message are never lost with them.
 func errxToMap(err error) map[string]any {
 	e := errx.AsErrorX(err)
-	return map[string]any{
+	reason := map[string]any{
 		"code":    e.Code(),
 		"type":    e.Type().String(),
 		"message": e.Error(),
 		"trace":   e.Trace(),
 		"details": e.Details(),
 	}
+
+	_, encodeErr := json.Marshal(reason)
+	if encodeErr != nil {
+		delete(reason, "details")
+		reason["details_error"] = encodeErr.Error()
+	}
+
+	return reason
 }
