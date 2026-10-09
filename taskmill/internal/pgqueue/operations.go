@@ -49,11 +49,12 @@ func (q *queue) Ack(ctx context.Context, db bun.IDB, taskID int64) error {
 // A task whose last allowed run failed is moved to the DLQ with reason, the
 // error of that run.
 //
-// attempts is the count the failed run was dequeued with, and the nack applies
-// only while that run still owns the task: the task is not parked, and no later
-// pickup has counted another attempt. A run that outlived its visibility timeout
-// may nack after a newer run took the task. That late nack must neither park the
-// task nor cut the newer run's lease short, so Nack changes nothing and reports
+// lease is the failed run's own pickup, and the nack applies only while that
+// run still owns the task: the task is not parked, and it still holds the
+// run's attempt count and lease end. A run that outlived its visibility timeout
+// may nack after a newer run took the task, even after a requeue from the DLQ
+// reset the count to the old run's. That late nack must neither park the task
+// nor cut the newer run's lease short, so Nack changes nothing and reports
 // false. It reports false too when the task is gone, acked by a newer run.
 //
 // A reason that cannot be stored as JSON is stored without the values that
@@ -62,7 +63,7 @@ func (q *queue) Nack(
 	ctx context.Context,
 	db bun.IDB,
 	taskID int64,
-	attempts int,
+	lease Lease,
 	reason map[string]any,
 ) (bool, error) {
 	// Load the task
@@ -75,17 +76,17 @@ func (q *queue) Nack(
 	}
 
 	// A parked task, or one a later pickup took, is no longer this run's
-	if task.DLQAt != nil || task.Attempts != attempts {
+	if task.DLQAt != nil || task.Attempts != lease.Attempts || !task.VisibleAt.Equal(lease.VisibleAt) {
 		return false, nil
 	}
 
 	var changed int64
 
-	if q.retryStrategy.ShouldRetry(attempts, effectiveMaxAttempts(task.MaxAttempts)) {
-		delay := q.retryStrategy.NextRetryDelay(attempts)
-		changed, err = q.retryOwnedTask(ctx, db, taskID, attempts, time.Now().Add(delay))
+	if q.retryStrategy.ShouldRetry(lease.Attempts, effectiveMaxAttempts(task.MaxAttempts)) {
+		delay := q.retryStrategy.NextRetryDelay(lease.Attempts)
+		changed, err = q.retryOwnedTask(ctx, db, taskID, lease, time.Now().Add(delay))
 	} else {
-		changed, err = q.parkOwnedTask(ctx, db, taskID, attempts, time.Now(), encodableReason(reason))
+		changed, err = q.parkOwnedTask(ctx, db, taskID, lease, time.Now(), encodableReason(reason))
 	}
 	if err != nil {
 		return false, errx.Wrap(err)

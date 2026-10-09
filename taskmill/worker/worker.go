@@ -286,7 +286,7 @@ func (w *worker) nackTask(ctx context.Context, queueTask pgqueue.Task, reason ma
 	}
 	defer tx.Rollback() //nolint:errcheck // rollback is no-op after commit
 
-	applied, err := w.queue.Nack(ctx, &tx, queueTask.ID, queueTask.Attempts, reason)
+	applied, err := w.queue.Nack(ctx, &tx, queueTask.ID, pgqueue.LeaseOf(queueTask), reason)
 	if err != nil {
 		return errx.Wrap(err)
 	}

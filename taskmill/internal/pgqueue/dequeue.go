@@ -26,6 +26,21 @@ type DequeueParams struct {
 	BatchSize int
 }
 
+// Lease names one pickup of a task: the attempt count and the lease end the
+// dequeue returned for it. Take both from the Task as Dequeue returned it, never
+// from a clock: VisibleAt is compared with the stored value exactly, to the
+// microsecond. The count alone is not enough, because a requeue from the DLQ
+// resets it, so an old run and a newer one can hold the same count.
+type Lease struct {
+	Attempts  int
+	VisibleAt time.Time
+}
+
+// LeaseOf returns the lease of a task as Dequeue returned it.
+func LeaseOf(task Task) Lease {
+	return Lease{Attempts: task.Attempts, VisibleAt: task.VisibleAt}
+}
+
 // Dequeue retrieves tasks from the queue.
 func (q *queue) Dequeue(ctx context.Context, db bun.IDB, params DequeueParams) ([]Task, error) {
 	// Validate parameters

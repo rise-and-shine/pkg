@@ -55,7 +55,8 @@ func TestDequeue_ParksATaskWhoseLastAttemptNeverReported(t *testing.T) {
 				require.Equal(t, run, tasks[0].Attempts)
 
 				if run < tt.runs {
-					applied, nackErr := q.Nack(ctx, db, id, run, map[string]any{"code": "RUN_FAILED"})
+					applied, nackErr := q.Nack(ctx, db, id, pgqueue.LeaseOf(tasks[0]),
+						map[string]any{"code": "RUN_FAILED"})
 					require.NoError(t, nackErr)
 					require.True(t, applied)
 				}
