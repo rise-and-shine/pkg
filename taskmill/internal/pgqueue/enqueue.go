@@ -10,6 +10,14 @@ import (
 
 const (
 	CodeDuplicateTask = "DUPLICATE_TASK"
+
+	// CodeTaskExpired is the dlq_reason code of a task found past its expires_at.
+	CodeTaskExpired = "TASK_EXPIRED"
+
+	// CodeAttemptsExhausted is the dlq_reason code of a task picked up again after
+	// its last allowed attempt never reported a result. A task whose last attempt
+	// fails is parked by Nack with that attempt's own error instead.
+	CodeAttemptsExhausted = "ATTEMPTS_EXHAUSTED"
 )
 
 // EnqueueBatch adds multiple tasks to the queue.
@@ -96,8 +104,10 @@ type TaskParams struct {
 	// Use time.Now() for immediate availability.
 	ScheduledAt time.Time
 
-	// MaxAttempts is the retry limit before moving to DLQ (required).
-	// Must be >= 1.
+	// MaxAttempts is how many times the task may run (required).
+	// A failed run is retried until MaxAttempts runs have failed; the last
+	// failure moves the task to the DLQ with that run's error.
+	// Must be >= 1; 1 means a single run and no retry.
 	MaxAttempts int
 
 	// ExpiresAt is the expiration time (optional).

@@ -171,10 +171,13 @@ type DLQTask struct {
 	// Priority determines processing order.
 	Priority int `json:"priority"`
 
-	// Attempts tracks how many times this task has been dequeued.
+	// Attempts tracks how many times this task has been dequeued. A task parked
+	// by its failed last run holds MaxAttempts. A task parked as
+	// CodeAttemptsExhausted holds one more: the count includes the pickup that
+	// found it spent.
 	Attempts int `json:"attempts"`
 
-	// MaxAttempts defines the maximum retry attempts.
+	// MaxAttempts is how many times the task may run before it is parked.
 	MaxAttempts int `json:"max_attempts"`
 
 	// IdempotencyKey is used for idempotency.
@@ -186,6 +189,13 @@ type DLQTask struct {
 	// DLQAt indicates when the task was moved to the dead letter queue.
 	DLQAt time.Time `json:"dlq_at"`
 
-	// DLQReason contains structured error information.
+	// DLQReason says why the task was parked. Reasons written since v1.11.0
+	// carry a "code"; older rows may hold {"reason": "..."} alone.
+	// A task whose last run failed carries that run's error: code, type,
+	// message, trace and details (details_error in place of details that could
+	// not be stored as JSON). Trace and details are the handler's own and may
+	// hold data not every operator should see. A task parked by the queue itself
+	// carries "reason" text, with code CodeTaskExpired (past expires_at) or
+	// CodeAttemptsExhausted (its last run never reported a result).
 	DLQReason map[string]any `json:"dlq_reason"`
 }

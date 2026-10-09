@@ -26,6 +26,21 @@ type DequeueParams struct {
 	BatchSize int
 }
 
+// Lease names one pickup of a task: the attempt count and the lease end the
+// dequeue returned for it. Take both from the Task as Dequeue returned it, never
+// from a clock: VisibleAt is compared with the stored value exactly, to the
+// microsecond. The count alone is not enough, because a requeue from the DLQ
+// resets it, so an old run and a newer one can hold the same count.
+type Lease struct {
+	Attempts  int
+	VisibleAt time.Time
+}
+
+// LeaseOf returns the lease of a task as Dequeue returned it.
+func LeaseOf(task Task) Lease {
+	return Lease{Attempts: task.Attempts, VisibleAt: task.VisibleAt}
+}
+
 // Dequeue retrieves tasks from the queue.
 func (q *queue) Dequeue(ctx context.Context, db bun.IDB, params DequeueParams) ([]Task, error) {
 	// Validate parameters
@@ -50,7 +65,7 @@ func (q *queue) Dequeue(ctx context.Context, db bun.IDB, params DequeueParams) (
 		// Cast to int64: pg_advisory_xact_lock takes bigint, not numeric.
 		// The uint64 hash wraps around to negative values for large hashes, but
 		// this is fine — the lock ID is still unique per (queue, group) pair.
-		lockID := int64(calculateLockID(params.QueueName, *params.TaskGroupID))
+		lockID := int64(calculateLockID(params.QueueName, *params.TaskGroupID)) //nolint:gosec // wraps, see above
 		_, err = db.ExecContext(ctx, "SELECT pg_advisory_xact_lock(?)", lockID)
 		if err != nil {
 			return nil, errx.Wrap(err)
@@ -70,7 +85,7 @@ func (q *queue) Dequeue(ctx context.Context, db bun.IDB, params DequeueParams) (
 		return nil, errx.Wrap(err)
 	}
 
-	// Check for each task if it has expired or reached max attempts.
+	// Check for each task if it has expired or used up its attempts.
 	// Filter out tasks that are moved to DLQ so they're not returned to the caller.
 	validTasks := make([]Task, 0, len(tasks))
 
@@ -78,6 +93,7 @@ func (q *queue) Dequeue(ctx context.Context, db bun.IDB, params DequeueParams) (
 		if task.ExpiresAt != nil && task.ExpiresAt.Before(time.Now()) {
 			// Move expired task to DLQ
 			err = q.moveToDLQ(ctx, db, task.ID, time.Now(), map[string]any{
+				"code":   CodeTaskExpired,
 				"reason": "task's expires_at timestamp has been reached before it could be processed",
 			})
 			if err != nil {
@@ -86,10 +102,17 @@ func (q *queue) Dequeue(ctx context.Context, db bun.IDB, params DequeueParams) (
 			continue // Don't include in returned tasks
 		}
 
-		if task.MaxAttempts > 0 && task.Attempts >= task.MaxAttempts {
-			// Move task with max attempts to DLQ
+		// The dequeue query has already counted this pickup, so Attempts is the
+		// number of the run about to start, and runs 1..MaxAttempts are allowed.
+		// A failed last run never gets here: Nack parks it with its own error.
+		// Arriving past the limit means the last run never reported a result the
+		// queue could record, so the task is parked instead of being run again.
+		if task.Attempts > effectiveMaxAttempts(task.MaxAttempts) {
 			err = q.moveToDLQ(ctx, db, task.ID, time.Now(), map[string]any{
-				"reason": "task's attempt counter has already reached or exceeded max_attempts limit",
+				"code": CodeAttemptsExhausted,
+				"reason": "task used all of its max_attempts, and its last attempt never reported a result " +
+					"the queue could record (worker crash or stop, visibility timeout, no handler registered, " +
+					"missing operation_id, or a failed ack/nack)",
 			})
 			if err != nil {
 				return nil, errx.Wrap(err)

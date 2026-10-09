@@ -44,7 +44,8 @@ type Task struct {
 	// Attempts tracks how many times this task has been dequeued.
 	Attempts int `bun:"attempts"`
 
-	// MaxAttempts defines the maximum retry attempts before moving to DLQ.
+	// MaxAttempts is how many times the task may run. After its last failed run
+	// the task is moved to the DLQ with that run's error.
 	MaxAttempts int `bun:"max_attempts"`
 
 	// IdempotencyKey is used for idempotency. Tasks with the same idempotency key

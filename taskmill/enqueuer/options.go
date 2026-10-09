@@ -39,7 +39,9 @@ func WithPriority(priority int) Option {
 	}
 }
 
-// WithMaxAttempts specifies the retry limit.
+// WithMaxAttempts specifies how many times the task may run: the first run
+// plus maxAttempts-1 retries. After the last failed run the task is moved to
+// the DLQ with that run's error. 1 means a single run and no retry.
 // Default is 3.
 func WithMaxAttempts(maxAttempts int) Option {
 	return func(opts *options) {

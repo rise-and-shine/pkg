@@ -31,6 +31,13 @@ make lint
 make test
 ```
 
+The taskmill tests need a real PostgreSQL. They are skipped unless `TEST_POSTGRES_DSN` names an existing database,
+in which they create the `taskmill` schema:
+
+```bash
+TEST_POSTGRES_DSN='postgres://postgres:postgres@localhost:5432/taskmill_test?sslmode=disable' make test
+```
+
 ## 📚 Dependencies
 
 ### Core Dependencies
