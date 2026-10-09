@@ -7,7 +7,8 @@ import (
 
 // RetryStrategy defines the interface for retry behavior.
 type RetryStrategy interface {
-	// ShouldRetry determines if a message should be retried based on attempts.
+	// ShouldRetry determines if a failed task should run again. attempts is the
+	// number of runs so far, the failed one included.
 	ShouldRetry(attempts, maxAttempts int) bool
 
 	// NextRetryDelay calculates the delay before the next retry.

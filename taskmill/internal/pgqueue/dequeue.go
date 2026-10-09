@@ -50,7 +50,7 @@ func (q *queue) Dequeue(ctx context.Context, db bun.IDB, params DequeueParams) (
 		// Cast to int64: pg_advisory_xact_lock takes bigint, not numeric.
 		// The uint64 hash wraps around to negative values for large hashes, but
 		// this is fine — the lock ID is still unique per (queue, group) pair.
-		lockID := int64(calculateLockID(params.QueueName, *params.TaskGroupID))
+		lockID := int64(calculateLockID(params.QueueName, *params.TaskGroupID)) //nolint:gosec // wraps, see above
 		_, err = db.ExecContext(ctx, "SELECT pg_advisory_xact_lock(?)", lockID)
 		if err != nil {
 			return nil, errx.Wrap(err)
@@ -70,7 +70,7 @@ func (q *queue) Dequeue(ctx context.Context, db bun.IDB, params DequeueParams) (
 		return nil, errx.Wrap(err)
 	}
 
-	// Check for each task if it has expired or reached max attempts.
+	// Check for each task if it has expired or used up its attempts.
 	// Filter out tasks that are moved to DLQ so they're not returned to the caller.
 	validTasks := make([]Task, 0, len(tasks))
 
@@ -78,6 +78,7 @@ func (q *queue) Dequeue(ctx context.Context, db bun.IDB, params DequeueParams) (
 		if task.ExpiresAt != nil && task.ExpiresAt.Before(time.Now()) {
 			// Move expired task to DLQ
 			err = q.moveToDLQ(ctx, db, task.ID, time.Now(), map[string]any{
+				"code":   CodeTaskExpired,
 				"reason": "task's expires_at timestamp has been reached before it could be processed",
 			})
 			if err != nil {
@@ -86,10 +87,17 @@ func (q *queue) Dequeue(ctx context.Context, db bun.IDB, params DequeueParams) (
 			continue // Don't include in returned tasks
 		}
 
-		if task.MaxAttempts > 0 && task.Attempts >= task.MaxAttempts {
-			// Move task with max attempts to DLQ
+		// The dequeue query has already counted this pickup, so Attempts is the
+		// number of the run about to start, and runs 1..MaxAttempts are allowed.
+		// A failed last run never gets here: Nack parks it with its own error.
+		// Arriving past the limit means the last run never reported back (the
+		// worker stopped or crashed mid-run, or the run outlived its visibility
+		// timeout), so the task is parked instead of being run again.
+		if task.MaxAttempts > 0 && task.Attempts > task.MaxAttempts {
 			err = q.moveToDLQ(ctx, db, task.ID, time.Now(), map[string]any{
-				"reason": "task's attempt counter has already reached or exceeded max_attempts limit",
+				"code": CodeAttemptsExhausted,
+				"reason": "task used all of its max_attempts, and its last attempt never reported a result " +
+					"(the worker stopped or crashed mid-run, or the run outlived its visibility timeout)",
 			})
 			if err != nil {
 				return nil, errx.Wrap(err)

@@ -40,6 +40,8 @@ func (q *queue) Ack(ctx context.Context, db bun.IDB, taskID int64) error {
 }
 
 // Nack negatively acknowledges a task, triggering retry or DLQ.
+// A task whose last allowed run failed is moved to the DLQ with reason, the
+// error of that run.
 func (q *queue) Nack(ctx context.Context, db bun.IDB, taskID int64, reason map[string]any) error {
 	// Load the task
 	task, err := q.selectTaskByID(ctx, db, taskID)
